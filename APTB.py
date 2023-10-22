@@ -1061,6 +1061,17 @@ def set_F2_lim(args, parfile):
     #     pass
 
 
+def set_RAJ_lim(args, parfile):
+    if args.RAJ_lim is None:
+        F0 = mb.get_model(parfile).F0.value
+        args.RAJ_lim = -30 / 700 * F0 + 40
+
+
+def set_DECJ_lim(args):
+    if args.DECJ_lim is None:
+        args.DECJ_lim = 1.3 * args.RAJ_lim
+
+
 def quadratic_phase_wrap_checker(
     f,
     mask_with_closest,
@@ -1351,13 +1362,13 @@ def APTB_argument_parse(parser, argv):
         "--RAJ_lim",
         help="minimum time span before Right Ascension (RAJ) can be fit for",
         type=float,
-        default=1.5,
+        default=None,
     )
     parser.add_argument(
         "--DECJ_lim",
         help="minimum time span before Declination (DECJ) can be fit for",
         type=float,
-        default=2.0,
+        default=None,
     )
     parser.add_argument(
         "--RAJ_prior",
@@ -1655,9 +1666,15 @@ def APTB_argument_parse(parser, argv):
     )
     parser.add_argument(
         "--cluster_gap_limit",
-        help="Maximum time span, in hours, between separate clusters. (default 2 hours)",
+        help="Maximum time span, in hours, between separate clusters. (Default 2 hours)",
         type=float,
         default=2,
+    )
+    parser.add_argument(
+        "--pulsar_name",
+        help="The name of pulsar. This will decide the folder name where the iterations are saved. Defaults to name in par file.",
+        type=str,
+        default=None,
     )
 
     args = parser.parse_args(argv)
@@ -1674,6 +1691,11 @@ def APTB_argument_parse(parser, argv):
         args.F1_sign_always = None
     if args.F1_sign_solution == "None":
         args.F1_sign_solution = None
+
+    if args.RAJ_lim == "inf":
+        args.RAJ_lim = np.inf
+    if args.DECJ_lim == "inf":
+        args.DECJ_lim = np.inf
 
     if args.RAJ_prior:
         RAJ_prior = args.RAJ_prior.split(",")
@@ -1802,7 +1824,7 @@ def main_for_loop(
             f=None,
             args=args,
             folder=alg_saves_mask_Path,
-            iteration=f"start_right_after_phase{start_iter}",
+            iteration=f"start_right_after_phase_connector{start_iter}",
             save_plot=True,
         ):
             # try next mask
@@ -2316,16 +2338,16 @@ def main():
 
     # every TOA, should never be edited
     all_toas_beggining = deepcopy(toas)
-
-    pulsar_name = str(mb.get_model(parfile).PSR.value)
+    if args.pulsar_name is None:
+        pulsar_name = str(mb.get_model(parfile).PSR.value)
+    else:
+        pulsar_name = args.pulsar_name
     alg_saves_Path = Path(f"alg_saves/{pulsar_name}")
     if not alg_saves_Path.exists():
         alg_saves_Path.mkdir(parents=True)
 
-    if args.RAJ_lim == "inf":
-        args.RAJ_lim = np.inf
-    if args.DECJ_lim == "inf":
-        args.DECJ_lim = np.inf
+    set_RAJ_lim(args, parfile)
+    set_DECJ_lim(args)
     set_F1_lim(args, parfile)
     set_F2_lim(args, parfile)
 
