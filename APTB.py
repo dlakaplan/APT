@@ -2167,7 +2167,8 @@ def main_for_loop(
     mask_with_closest = deepcopy(clusters == 0)
     # mask_with_closest = deepcopy(mask)
 
-    unJUMPed_clusters = np.array([starting_cluster])
+    # unJUMPed_clusters = np.array([starting_cluster])
+    unJUMPed_clusters = np.array([0])
     cluster_to_JUMPs = np.arange(1, cluster_max + 1)
     # tim_jump = deepcopy(clusters)
     cluster_distances = []
