@@ -306,6 +306,8 @@ class CustomNode(treelib.Node):
 class NodeData:
     m: pint.models.timing_model.TimingModel = None
     unJUMPed_clusters: np.ndarray = None
+    cluster_distances: list = None
+    cluster_to_JUMPs: np.ndarray = None
 
     def data_is_valid(self, args):
         """_summary_
@@ -391,7 +393,14 @@ class NodeData:
         return return_value
 
     def __iter__(self):
-        return iter((self.m, self.unJUMPed_clusters))
+        return iter(
+            (
+                self.m,
+                self.unJUMPed_clusters,
+                self.cluster_distances,
+                self.cluster_to_JUMPs,
+            )
+        )
 
 
 def starting_points(
@@ -523,15 +532,18 @@ def JUMP_adder_begginning_cluster(
     return m, t
 
 
-def JUMP_remover_decider(depth, starting_cluster):
+def JUMP_remover_decider(depth, starting_cluster, smallest_distance):
     # returning True means do serial
     # TODO incorporate some level of decision making here
 
-    # This is a good start for now. The 3 could a commandline argument
-    return True if depth < 3 else False
+    # This is a good start for now. serial_depth could a commandline argument
+    serial_depth = 5
+    return True if depth < serial_depth else False
 
 
-def JUMP_remover(left_cluster, cluster_distances, distance, cluster_to_JUMPs, m):
+def JUMP_remover(
+    left_cluster, cluster_distances, distance, cluster_to_JUMPs, unJUMPed_clusters, m
+):
     right_cluster = left_cluster + 1
     cluster_distances.remove(distance)
     anchor_jump_numb = cluster_to_JUMPs[left_cluster]
@@ -554,6 +566,7 @@ def JUMP_remover(left_cluster, cluster_distances, distance, cluster_to_JUMPs, m)
         left_cluster,
         cluster_distances,
         cluster_to_JUMPs,
+        unJUMPed_clusters,
         m,
         anchor_jump_numb,
         right_cluster,
@@ -573,21 +586,27 @@ def JUMP_remover_total(
     clusters,
     cluster_max,
 ):
-    serial = JUMP_remover_decider(depth, starting_cluster)
+    smallest_distance = np.min(cluster_distances)
+    serial = JUMP_remover_decider(depth, starting_cluster, smallest_distance)
     m = f.model
 
     if not serial:
-        smallest_distance = np.min(cluster_distances)
         left_cluster = cluster_distances_dict[smallest_distance]
         (
             left_cluster,
             cluster_distances,
             cluster_to_JUMPs,
+            unJUMPed_clusters,
             m,
             anchor_jump_numb,
             right_cluster,
         ) = JUMP_remover(
-            left_cluster, cluster_distances, smallest_distance, cluster_to_JUMPs, m
+            left_cluster,
+            cluster_distances,
+            smallest_distance,
+            cluster_to_JUMPs,
+            unJUMPed_clusters,
+            m,
         )
         # right_cluster = left_cluster + 1
         # cluster_distances.remove(smallest_distance)
@@ -630,22 +649,34 @@ def JUMP_remover_total(
                 left_cluster,
                 cluster_distances,
                 cluster_to_JUMPs,
+                unJUMPed_clusters,
                 m,
                 anchor_jump_numb,
                 right_cluster,
             ) = JUMP_remover(
-                group_left - 1, cluster_distances, dist_left, cluster_to_JUMPs, m
+                group_left - 1,
+                cluster_distances,
+                dist_left,
+                cluster_to_JUMPs,
+                unJUMPed_clusters,
+                m,
             )
         else:
             (
                 left_cluster,
                 cluster_distances,
                 cluster_to_JUMPs,
+                unJUMPed_clusters,
                 m,
                 anchor_jump_numb,
                 right_cluster,
             ) = JUMP_remover(
-                group_right, cluster_distances, dist_right, cluster_to_JUMPs, m
+                group_right,
+                cluster_distances,
+                dist_right,
+                cluster_to_JUMPs,
+                unJUMPed_clusters,
+                m,
             )
 
     unJUMPed_clusters = np.unique(unJUMPed_clusters)  # this is probably unneccesary
@@ -653,13 +684,23 @@ def JUMP_remover_total(
     left_cluster_left_mjd = mjds[clusters == left_cluster].min()
     if left_cluster_left_mjd == getattr(m, f"JUMP{anchor_jump_numb}").key_value[0]:
         closest_cluster = left_cluster
+        adder = 1
     else:
         closest_cluster = right_cluster
+        adder = -1
     # left_mjd = getattr(m, f"JUMP{anchor_jump_numb}").key_value[0]
     # if left_mjd ==
 
     f.model = m
-    return f, t, closest_cluster, unJUMPed_clusters, cluster_distances, cluster_to_JUMPs
+    return (
+        f,
+        t,
+        closest_cluster,
+        unJUMPed_clusters,
+        cluster_distances,
+        cluster_to_JUMPs,
+        adder,
+    )
 
 
 def serial_closest(unJUMPed_clusters, cluster_distances, cluster_max):
@@ -1978,9 +2019,10 @@ def main_for_loop(
 
     m = mb.get_model(parfile)
     print(f"1{m=}")
-
+    clusters = toas.table["clusters"]
+    cluster_max = np.max(clusters)
     m, t = JUMP_adder_begginning_cluster(
-        t,
+        toas,
         m,
         args.cluster_gap_limit,
         starting_cluster,
@@ -2122,12 +2164,10 @@ def main_for_loop(
     bad_mjds = []
 
     # mask_with_closest will be everything where the JUMPs between them and a neighbor have been removed
-    clusters = t.table["clusters"]
     mask_with_closest = deepcopy(clusters == 0)
     # mask_with_closest = deepcopy(mask)
 
     unJUMPed_clusters = np.array([starting_cluster])
-    cluster_max = np.max(t.table["clusters"])
     cluster_to_JUMPs = np.arange(1, cluster_max + 1)
     # tim_jump = deepcopy(clusters)
     cluster_distances = []
@@ -2154,6 +2194,7 @@ def main_for_loop(
                 unJUMPed_clusters,
                 cluster_distances,
                 cluster_to_JUMPs,
+                adder,
             ) = JUMP_remover_total(
                 f,
                 t,
@@ -2169,7 +2210,7 @@ def main_for_loop(
             )
 
             print(
-                f"\n{colorama.Fore.LIGHTCYAN_EX}Removing the JUMP between clusters {closest_cluster} and {closest_cluster+1}{colorama.Style.RESET_ALL}"
+                f"\n{colorama.Fore.LIGHTCYAN_EX}Removing the JUMP between clusters {closest_cluster} and {closest_cluster+adder}{colorama.Style.RESET_ALL}"
             )
         else:
             # save this file
@@ -2287,6 +2328,8 @@ def main_for_loop(
                 f,
                 mask_with_closest,
                 closest_cluster_mask,
+                cluster_distances=cluster_distances,
+                cluster_to_JUMPs=cluster_to_JUMPs,
                 b=5,
                 maxiter_while=maxiter_while,
                 closest_cluster=closest_cluster,
@@ -2302,7 +2345,16 @@ def main_for_loop(
                 if data is None:
                     solution_tree.show()
                     break
-                f.model, unJUMPed_clusters, cluster_distances, cluster_to_JUMPs = data
+                try:
+                    (
+                        f.model,
+                        unJUMPed_clusters,
+                        cluster_distances,
+                        cluster_to_JUMPs,
+                    ) = data
+                except ValueError as e:
+                    print(data)
+                    raise e
                 if f.model is None:
                     break
                 mask_with_closest = np.isin(f.toas.table["clusters"], unJUMPed_clusters)
