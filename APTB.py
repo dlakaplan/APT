@@ -570,6 +570,7 @@ def JUMP_remover(
         m,
         anchor_jump_numb,
         right_cluster,
+        removed_JUMP_numb,
     )
 
 
@@ -586,6 +587,7 @@ def JUMP_remover_total(
     clusters,
     cluster_max,
 ):
+    cluster_to_JUMPs_old = cluster_to_JUMPs.copy()
     smallest_distance = np.min(cluster_distances)
     serial = JUMP_remover_decider(depth, starting_cluster, smallest_distance)
     m = f.model
@@ -600,6 +602,7 @@ def JUMP_remover_total(
             m,
             anchor_jump_numb,
             right_cluster,
+            removed_JUMP_numb,
         ) = JUMP_remover(
             left_cluster,
             cluster_distances,
@@ -653,6 +656,7 @@ def JUMP_remover_total(
                 m,
                 anchor_jump_numb,
                 right_cluster,
+                removed_JUMP_numb,
             ) = JUMP_remover(
                 group_left - 1,
                 cluster_distances,
@@ -670,6 +674,7 @@ def JUMP_remover_total(
                 m,
                 anchor_jump_numb,
                 right_cluster,
+                removed_JUMP_numb,
             ) = JUMP_remover(
                 group_right,
                 cluster_distances,
@@ -688,6 +693,11 @@ def JUMP_remover_total(
     else:
         closest_cluster = right_cluster
         adder = -1
+
+    # cluster_to_JUMPs[cluster_to_JUMPs == removed_JUMP_numb] = cluster_to_JUMPs[
+    #     left_cluster
+    # ]
+    closest_cluster_group = np.where(cluster_to_JUMPs_old == removed_JUMP_numb)[0]
     # left_mjd = getattr(m, f"JUMP{anchor_jump_numb}").key_value[0]
     # if left_mjd ==
 
@@ -696,6 +706,7 @@ def JUMP_remover_total(
         f,
         t,
         closest_cluster,
+        closest_cluster_group,
         unJUMPed_clusters,
         cluster_distances,
         cluster_to_JUMPs,
@@ -2193,6 +2204,7 @@ def main_for_loop(
                 f,
                 t,
                 closest_cluster,
+                closest_cluster_group,
                 unJUMPed_clusters,
                 cluster_distances,
                 cluster_to_JUMPs,
@@ -2267,7 +2279,8 @@ def main_for_loop(
                 # end the program
                 break
 
-        closest_cluster_mask = t.table["clusters"] == closest_cluster
+        # closest_cluster_mask = clusters == closest_cluster
+        closest_cluster_mask = np.isin(clusters, closest_cluster_group)
 
         # TODO add polyfit here
         # random models can cover this instead
@@ -2355,7 +2368,7 @@ def main_for_loop(
                         cluster_to_JUMPs,
                     ) = data
                 except ValueError as e:
-                    print(data)
+                    print(f"{data=}")
                     raise e
                 if f.model is None:
                     break
