@@ -537,7 +537,7 @@ def JUMP_remover_decider(depth, starting_cluster, smallest_distance):
     # TODO incorporate some level of decision making here
 
     # This is a good start for now. serial_depth could a commandline argument
-    serial_depth = 5
+    serial_depth = 3
     return True if depth < serial_depth else False
 
 
@@ -1938,6 +1938,7 @@ def APTB_argument_parse(parser, argv):
         default=2,
     )
     parser.add_argument(
+        "-n",
         "--pulsar_name",
         help="The name of pulsar. This will decide the folder name where the iterations are saved. Defaults to name in par file.",
         type=str,
@@ -2169,7 +2170,7 @@ def main_for_loop(
 
     # unJUMPed_clusters = np.array([starting_cluster])
     unJUMPed_clusters = np.array([0])
-    cluster_to_JUMPs = np.arange(1, cluster_max + 1)
+    cluster_to_JUMPs = np.arange(1, cluster_max + 2)
     # tim_jump = deepcopy(clusters)
     cluster_distances = []
     cluster_distances_dict = {}
