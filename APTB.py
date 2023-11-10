@@ -239,7 +239,7 @@ class CustomTree(treelib.Tree):
                 break
             elif current_parent_id == "Root":
                 # program is done
-                return (None, None), " "
+                return (None, None, None, None), " "
 
             new_parent = self.parent(current_parent_id)
             self.prune(current_parent_id, args)
@@ -532,12 +532,11 @@ def JUMP_adder_begginning_cluster(
     return m, t
 
 
-def JUMP_remover_decider(depth, starting_cluster, smallest_distance):
+def JUMP_remover_decider(depth, starting_cluster, smallest_distance, serial_depth):
     # returning True means do serial
     # TODO incorporate some level of decision making here
 
     # This is a good start for now. serial_depth could a commandline argument
-    serial_depth = 3
     return True if depth < serial_depth else False
 
 
@@ -586,10 +585,13 @@ def JUMP_remover_total(
     mjds,
     clusters,
     cluster_max,
+    serial_depth,
 ):
     cluster_to_JUMPs_old = cluster_to_JUMPs.copy()
     smallest_distance = np.min(cluster_distances)
-    serial = JUMP_remover_decider(depth, starting_cluster, smallest_distance)
+    serial = JUMP_remover_decider(
+        depth, starting_cluster, smallest_distance, serial_depth
+    )
     m = f.model
 
     if not serial:
@@ -1396,11 +1398,31 @@ def quadratic_phase_wrap_checker(
             for wrap in [-b_i, 0, b_i]:
                 # print(f"wrap is {wrap}")
                 # m_copy = deepcopy(m)
+
                 t.table["delta_pulse_number"][closest_cluster_mask] = wrap
+
+                ########################################################### # TODO delete this testing block
+                # t.table["delta_pulse_number"] = 0
+                # t.compute_pulse_numbers(f.model)
+                # residuals = pint.residuals.Residuals(t, f.model).calc_phase_resids()
+
+                # If args.pre_save_state is False (default) then the save will not be saved
+                # save_state(
+                #     f,
+                #     f.model,
+                #     t,
+                #     mjds=t.get_mjds().value,
+                #     pulsar_name=args.pulsar_name,
+                #     args=args,
+                #     folder=folder,
+                #     iteration=f"i{iteration}_d{solution_tree.current_depth()}_c{closest_cluster}_b{wrap}",
+                #     save_plot=True,
+                #     mask_with_closest=mask_with_closest,
+                # )
+
+                ###########################################################
                 f.fit_toas(maxiter=maxiter_while)
-                # m_copy = do_Ftests(t, m_copy, mask_with_closest, args)
                 chisq_samples[wrap] = f.resids.chi2_reduced
-                ####f.reset_model()
                 f.model = deepcopy(m_copy)
 
             # if the loop did not encounter an error, then reassign b and end the loop
@@ -1421,7 +1443,7 @@ def quadratic_phase_wrap_checker(
                 response = input(
                     "Should APTB continue anyway, assuming no phase wraps for the next cluster? (y/n)"
                 )
-                if response == "y":
+                if response.lower() == "y":
                     return WLSFitter(t, m), t
                 else:
                     raise e
@@ -1955,6 +1977,13 @@ def APTB_argument_parse(parser, argv):
         type=str,
         default=None,
     )
+    parser.add_argument(
+        "-sd",
+        "--serial_depth",
+        help="The depth that APTB will no longer connect clusters serially.",
+        type=int,
+        default=3,
+    )
 
     args = parser.parse_args(argv)
 
@@ -2221,6 +2250,7 @@ def main_for_loop(
                 mjds_total,
                 clusters,
                 cluster_max,
+                args.serial_depth,
             )
 
             print(
@@ -2368,7 +2398,7 @@ def main_for_loop(
                         cluster_to_JUMPs,
                     ) = data
                 except ValueError as e:
-                    print(f"{data=}")
+                    print(f"data = {data}")
                     raise e
                 if f.model is None:
                     break
@@ -2658,6 +2688,7 @@ def main():
     all_toas_beggining = deepcopy(toas)
     if args.pulsar_name is None:
         pulsar_name = str(mb.get_model(parfile).PSR.value)
+        args.pulsar_name = pulsar_name
     else:
         pulsar_name = args.pulsar_name
     alg_saves_Path = Path(f"alg_saves/{pulsar_name}")
