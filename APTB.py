@@ -1619,10 +1619,11 @@ def APTB_argument_parse(parser, argv):
     parser.add_argument(
         "--binary_model",
         help="which binary pulsar model to use.",
-        choices=["ELL1", "ell1", "BT", "bt"],
+        choices=["ELL1", "ell1", "BT", "bt", "DD", "dd"],
         default=None,
     )
     parser.add_argument(
+        "-sp",
         "--starting_points",
         help="mask array to apply to chose the starting points, clusters or mjds",
         type=str,
