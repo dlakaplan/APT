@@ -2275,7 +2275,7 @@ def main_for_loop(
                 # need to load the next best branch, but need to do what happens after quad_phase_wrap_checker first
 
                 data, explored_name = solution_tree.node_selector(f, args, iteration)
-                f.model, unJUMPed_clusters = data
+                f.model, unJUMPed_clusters, cluster_distances, cluster_to_JUMPs = data
                 if f.model is None:
                     break
                 mask_with_closest = np.isin(f.toas.table["clusters"], unJUMPed_clusters)
