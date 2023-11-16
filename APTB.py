@@ -8,6 +8,7 @@ import pint.utils
 import pint.models.model_builder as mb
 import pint.random_models
 from pint.phase import Phase
+from pint.models import parameter, PhaseJump
 from pint.fitter import WLSFitter
 from copy import deepcopy
 import astropy.units as u
@@ -70,6 +71,8 @@ class CustomTree(treelib.Tree):
         maxiter_while,
         args,
         unJUMPed_clusters,
+        cluster_distances,
+        cluster_to_JUMPs,
     ):
         """
         Explores neighboring phase wraps and produced branches on those that give an acceptable reduced chisq.
@@ -86,7 +89,7 @@ class CustomTree(treelib.Tree):
         closest_cluster_mask : the mask of the most recently unJUMPed cluster
         maxiter_while : the maxiter for f.fit_toas
         args : command line arguments
-        unJUMPed_clusters : an array of the number every unJUMPed cluster
+        unJUMPed_clusters : an array of the number every serially unJUMPed cluster
         """
         current_parent_id = self.current_parent_id
         depth = self.depth(current_parent_id) + 1
@@ -115,7 +118,12 @@ class CustomTree(treelib.Tree):
                     f"{colorama.Fore.GREEN}Branch created: parent = {current_parent_id}, name = {node_name}{colorama.Style.RESET_ALL}"
                 )
             self.blueprint.append((current_parent_id, node_name))
-            data = NodeData(m_wrap_dict[number], deepcopy(unJUMPed_clusters))
+            data = NodeData(
+                m_wrap_dict[number],
+                deepcopy(unJUMPed_clusters),
+                deepcopy(cluster_distances),
+                deepcopy(cluster_to_JUMPs),
+            )
             if data.data_is_valid(args):
                 self.create_node(
                     node_name,
@@ -231,7 +239,7 @@ class CustomTree(treelib.Tree):
                 break
             elif current_parent_id == "Root":
                 # program is done
-                return (None, None), " "
+                return (None, None, None, None), " "
 
             new_parent = self.parent(current_parent_id)
             self.prune(current_parent_id, args)
@@ -258,7 +266,6 @@ class CustomTree(treelib.Tree):
         # explored_name = f"I{iteration}_{selected_node_id}"
         # self.explored_blueprint.append((, explored_name))
 
-        # m, unJUMPed_clusters = selected_node.data
         return selected_node.data, explored_name
 
     def prune(self, id_to_prune, args):
@@ -299,6 +306,8 @@ class CustomNode(treelib.Node):
 class NodeData:
     m: pint.models.timing_model.TimingModel = None
     unJUMPed_clusters: np.ndarray = None
+    cluster_distances: list = None
+    cluster_to_JUMPs: np.ndarray = None
 
     def data_is_valid(self, args):
         """_summary_
@@ -319,7 +328,12 @@ class NodeData:
             return validated
 
         # can easily add validator functions to this list
-        validator_funcs = [self.F1_validator, self.A1_validator]
+        validator_funcs = [
+            self.F1_validator,
+            self.A1_validator,
+            self.RAJ_validator,
+            self.DECJ_validator,
+        ]
         self.validated = np.all([valid_func(args) for valid_func in validator_funcs])
         return self.validated
 
@@ -379,7 +393,14 @@ class NodeData:
         return return_value
 
     def __iter__(self):
-        return iter((self.m, self.unJUMPed_clusters))
+        return iter(
+            (
+                self.m,
+                self.unJUMPed_clusters,
+                self.cluster_distances,
+                self.cluster_to_JUMPs,
+            )
+        )
 
 
 def starting_points(
@@ -448,7 +469,7 @@ def starting_points(
 
 
 def JUMP_adder_begginning_cluster(
-    mask: np.ndarray, t, model, output_parfile, output_timfile, cluster_gap_limit
+    t, m, cluster_gap_limit, starting_cluster, cluster_max, mjds, clusters
 ):
     """
     Adds JUMPs to a timfile as the begginning of analysis.
@@ -459,7 +480,7 @@ def JUMP_adder_begginning_cluster(
     ----------
     mask : a mask to select which toas will not be jumped
     t : TOAs object
-    model : model object
+    m : model object
     output_parfile : name for par file to be written
     output_timfile : name for the tim file to be written
 
@@ -469,28 +490,265 @@ def JUMP_adder_begginning_cluster(
     """
     if "clusters" not in t.table.columns:
         t.table["clusters"] = t.get_clusters(gap_limit=cluster_gap_limit * u.h)
-    flag_name = "jump_tim"
+    # flag_name = "tim_jump"
 
-    former_cluster = t.table[mask]["clusters"][0]
-    j = 0
-    for i, table in enumerate(t.table[~mask]):
-        # if table["clusters"] != former_cluster:
-        #     former_cluster = table["clusters"]
-        #     j += 1
-        table["flags"][flag_name] = str(table["clusters"])
-    t.write_TOA_file(output_timfile)
+    # former_cluster = t.table[mask]["clusters"][0]
+    # j = 0
+    # for i, table in enumerate(t.table[~mask]):
+    #     table["flags"][flag_name] = str(table["clusters"])
+    # t.write_TOA_file(output_timfile)
 
-    # model.jump_flags_to_params(t) doesn't currently work (need flag name to be "tim_jump" and even then it still won't work),
-    # so the following is a workaround. This is likely related to issue 1294.
-    ### (workaround surrounded in ###)
-    with open(output_parfile, "w") as parfile:
-        parfile.write(model.as_parfile())
-        for i in set(t.table[~mask]["clusters"]):
-            parfile.write(f"JUMP\t\t-{flag_name} {i}\t0 1 0\n")
-    model = mb.get_model(output_parfile)
+    # model.jump_flags_to_params(t)
+
+    # TODO delete this workaround:
+    # ### (workaround surrounded in ###)
+    # with open(output_parfile, "w") as parfile:
+    #     parfile.write(model.as_parfile())
+    #     for i in set(t.table[~mask]["clusters"]):
+    #         parfile.write(f"JUMP\t\t-{flag_name} {i}\t0 1 0\n")
+    # model = mb.get_model(output_parfile)
     ###
 
-    return model, t
+    # this adds the JUMPs based on the MJD range in which they apply
+    m.add_component(PhaseJump(), validate=False)
+    for c in range(cluster_max + 1):
+        # if c == starting_cluster:
+        #     continue
+        mjds_cluster = mjds[clusters == c]
+        # here we will use a range of MJDs
+        par = parameter.maskParameter(
+            "JUMP",
+            key="mjd",
+            value=0.0,
+            key_value=[
+                mjds_cluster.min(),
+                mjds_cluster.max(),
+            ],
+            units=u.s,
+            frozen=True if c == 0 else False,
+        )
+        m.components["PhaseJump"].add_param(par, setup=True)
+
+    return m, t
+
+
+def JUMP_remover_decider(depth, starting_cluster, smallest_distance, serial_depth):
+    # returning True means do serial
+    # TODO incorporate some level of decision making here
+
+    # This is a good start for now. serial_depth could a commandline argument
+    return True if depth < serial_depth else False
+
+
+def JUMP_remover(
+    left_cluster, cluster_distances, distance, cluster_to_JUMPs, unJUMPed_clusters, m
+):
+    right_cluster = left_cluster + 1
+    cluster_distances.remove(distance)
+    anchor_jump_numb = cluster_to_JUMPs[left_cluster]
+
+    removed_JUMP_numb = cluster_to_JUMPs[right_cluster]
+    removed_JUMP_attr = f"JUMP{removed_JUMP_numb}"
+    getattr(m, removed_JUMP_attr).frozen = True
+    getattr(m, removed_JUMP_attr).value = 0
+    getattr(m, removed_JUMP_attr).uncertainty = 0
+    cluster_to_JUMPs[cluster_to_JUMPs == removed_JUMP_numb] = cluster_to_JUMPs[
+        left_cluster
+    ]
+
+    right_mjd = getattr(m, removed_JUMP_attr).key_value[1]
+    getattr(m, f"JUMP{anchor_jump_numb}").key_value[1] = right_mjd
+
+    unJUMPed_clusters = np.append(unJUMPed_clusters, [left_cluster, right_cluster])
+
+    return (
+        left_cluster,
+        cluster_distances,
+        cluster_to_JUMPs,
+        unJUMPed_clusters,
+        m,
+        anchor_jump_numb,
+        right_cluster,
+        removed_JUMP_numb,
+    )
+
+
+def JUMP_remover_total(
+    f,
+    t,
+    unJUMPed_clusters,
+    cluster_distances,
+    cluster_distances_dict,
+    starting_cluster,
+    cluster_to_JUMPs,
+    depth,
+    mjds,
+    clusters,
+    cluster_max,
+    serial_depth,
+):
+    cluster_to_JUMPs_old = cluster_to_JUMPs.copy()
+    smallest_distance = np.min(cluster_distances)
+    serial = JUMP_remover_decider(
+        depth, starting_cluster, smallest_distance, serial_depth
+    )
+    m = f.model
+
+    if not serial:
+        left_cluster = cluster_distances_dict[smallest_distance]
+        (
+            left_cluster,
+            cluster_distances,
+            cluster_to_JUMPs,
+            unJUMPed_clusters,
+            m,
+            anchor_jump_numb,
+            right_cluster,
+            removed_JUMP_numb,
+        ) = JUMP_remover(
+            left_cluster,
+            cluster_distances,
+            smallest_distance,
+            cluster_to_JUMPs,
+            unJUMPed_clusters,
+            m,
+        )
+        # right_cluster = left_cluster + 1
+        # cluster_distances.remove(smallest_distance)
+        # anchor_jump_numb = cluster_to_JUMPs[left_cluster]
+
+        # removed_JUMP_numb = cluster_to_JUMPs[right_cluster]
+        # removed_JUMP_attr = f"JUMP{removed_JUMP_numb}"
+        # getattr(m, removed_JUMP_attr).frozen = True
+        # getattr(m, removed_JUMP_attr).value = 0
+        # getattr(m, removed_JUMP_attr).uncertainty = 0
+        # cluster_to_JUMPs[cluster_to_JUMPs == removed_JUMP_numb] = cluster_to_JUMPs[
+        #     left_cluster
+        # ]
+
+        # right_mjd = getattr(m, removed_JUMP_attr).key_value[1]
+        # getattr(m, f"JUMP{anchor_jump_numb}").key_value[1] = right_mjd
+
+        # unJUMPed_clusters = np.append(unJUMPed_clusters, [left_cluster, right_cluster])
+
+    else:
+        starting_cluster_jump_numb = cluster_to_JUMPs[starting_cluster]
+        starting_cluster_group = np.where(
+            cluster_to_JUMPs == starting_cluster_jump_numb
+        )[0]
+        group_left = starting_cluster_group.min()
+        group_right = starting_cluster_group.max()
+
+        if group_left == 0:
+            left = True
+        elif group_right == cluster_max:
+            left = False
+        else:
+            dist_left = cluster_distances_dict[group_left - 1]
+            dist_right = cluster_distances_dict[group_right]
+
+            left = True if dist_left < dist_right else False
+
+        if left:
+            (
+                left_cluster,
+                cluster_distances,
+                cluster_to_JUMPs,
+                unJUMPed_clusters,
+                m,
+                anchor_jump_numb,
+                right_cluster,
+                removed_JUMP_numb,
+            ) = JUMP_remover(
+                group_left - 1,
+                cluster_distances,
+                dist_left,
+                cluster_to_JUMPs,
+                unJUMPed_clusters,
+                m,
+            )
+        else:
+            (
+                left_cluster,
+                cluster_distances,
+                cluster_to_JUMPs,
+                unJUMPed_clusters,
+                m,
+                anchor_jump_numb,
+                right_cluster,
+                removed_JUMP_numb,
+            ) = JUMP_remover(
+                group_right,
+                cluster_distances,
+                dist_right,
+                cluster_to_JUMPs,
+                unJUMPed_clusters,
+                m,
+            )
+
+    unJUMPed_clusters = np.unique(unJUMPed_clusters)  # this is probably unneccesary
+
+    left_cluster_left_mjd = mjds[clusters == left_cluster].min()
+    if left_cluster_left_mjd == getattr(m, f"JUMP{anchor_jump_numb}").key_value[0]:
+        closest_cluster = left_cluster
+        adder = 1
+    else:
+        closest_cluster = right_cluster
+        adder = -1
+
+    # cluster_to_JUMPs[cluster_to_JUMPs == removed_JUMP_numb] = cluster_to_JUMPs[
+    #     left_cluster
+    # ]
+    closest_cluster_group = np.where(cluster_to_JUMPs_old == removed_JUMP_numb)[0]
+    # left_mjd = getattr(m, f"JUMP{anchor_jump_numb}").key_value[0]
+    # if left_mjd ==
+
+    f.model = m
+    return (
+        f,
+        t,
+        closest_cluster,
+        closest_cluster_group,
+        unJUMPed_clusters,
+        cluster_distances,
+        cluster_to_JUMPs,
+        adder,
+    )
+
+
+def serial_closest(unJUMPed_clusters, cluster_distances, cluster_max):
+    """_summary_
+
+    Parameters
+    ----------
+    unJUMPed_clusters : np.array
+        list of the cluster numbers of the unJUMPed clusters which have only been unJUMPed serially
+    cluster_distances : np.array
+        distances between successive clusters
+    cluster_max : int
+        highest cluster number
+
+    Returns
+    -------
+    int
+        cluster number of the closest cluster to the unJUMPed clusters
+    """
+    left_cluster = np.min(unJUMPed_clusters)
+    right_cluster = np.max(unJUMPed_clusters)
+
+    if left_cluster == 0 and right_cluster == cluster_max:
+        return None
+
+    if left_cluster == 0:
+        return right_cluster + 1
+
+    if right_cluster == cluster_max:
+        return left_cluster - 1
+
+    left_distance = cluster_distances[left_cluster - 1]
+    right_distance = cluster_distances[right_cluster]
+
+    return left_cluster - 1 if left_distance < right_distance else right_cluster + 1
 
 
 def phase_connector(
@@ -519,7 +777,6 @@ def phase_connector(
     Returns
     -------
     None
-        The only intention of the return statements is to end the function
     """
     # print(f"cluster {cluster}")
 
@@ -530,143 +787,159 @@ def phase_connector(
     toas.table["delta_pulse_number"] = np.zeros(len(toas.get_mjds()))
     toas.compute_pulse_numbers(model)
 
-    if mjds_total is None:
-        mjds_total = toas.get_mjds().value
+    residuals_unwrapped = np.unwrap(np.array(residuals), period=1)
+    toas.table["delta_pulse_number"] = residuals_unwrapped - residuals
 
-    if cluster == "all":
-        if connection_filter == "np.unwrap":
-            t = deepcopy(toas)
-            mask_with_closest = kwargs.get(
-                "mask_with_closest", np.zeros(len(toas), dtype=bool)
-            )
-            t.select(~mask_with_closest)
-            residuals_unwrapped = np.unwrap(
-                np.array(residuals[~mask_with_closest]), period=1
-            )
-            t.table["delta_pulse_number"] = (
-                residuals_unwrapped - residuals[~mask_with_closest]
-            )
-            toas.table[~mask_with_closest] = t.table
-            return
-        for cluster_number in set(toas["clusters"]):
-            phase_connector(
-                toas,
-                model,
-                connection_filter,
-                cluster_number,
-                mjds_total,
-                residuals,
-                cluster_gap_limit,
-                **kwargs,
-            )
-        return
+    # The following is commented out and will be deleted once extensive testing is done.
+    # The "linear" connection filter should be saved though.
 
-    if "clusters" not in toas.table.columns:
-        toas.table["clusters"] = toas.get_clusters(gap_limit=cluster_gap_limit * u.h)
-    # if "pulse_number" not in toas.table.colnames:  ######
-    # toas.compute_pulse_numbers(model)
-    # if "delta_pulse_number" not in toas.table.colnames:
-    # toas.table["delta_pulse_number"] = np.zeros(len(toas.get_mjds()))
+    # if mjds_total is None:
+    #     mjds_total = toas.get_mjds().value
 
-    # this must be recalculated evertime because the residuals change
-    # if a delta_pulse_number is added
-    residuals_total = pint.residuals.Residuals(toas, model).calc_phase_resids()
+    # if cluster == "all":
+    #     if connection_filter == "np.unwrap":
+    #         # t = deepcopy(toas)
+    #         # mask_with_closest = kwargs.get(
+    #         #     "mask_with_closest", np.zeros(len(toas), dtype=bool)
+    #         # )
+    #         # t.select(~mask_with_closest)
+    #         # residuals_unwrapped = np.unwrap(
+    #         #     np.array(residuals[~mask_with_closest]), period=1
+    #         # )
+    #         # t.table["delta_pulse_number"] = (
+    #         #     residuals_unwrapped - residuals[~mask_with_closest]
+    #         # )
+    #         # toas.table[~mask_with_closest] = t.table
+    #         # return
+    #         # t = deepcopy(toas)
+    #         # mask_with_closest = kwargs.get(
+    #         #     "mask_with_closest", np.zeros(len(toas), dtype=bool)
+    #         # )
+    #         # t.select(~mask_with_closest)
+    #         residuals_unwrapped = np.unwrap(np.array(residuals), period=1)
+    #         toas.table["delta_pulse_number"] = residuals_unwrapped - residuals
+    #         # toas.table = t.table
+    #         return
+    #     for cluster_number in set(toas["clusters"]):
+    #         phase_connector(
+    #             toas,
+    #             model,
+    #             connection_filter,
+    #             cluster_number,
+    #             mjds_total,
+    #             residuals,
+    #             cluster_gap_limit,
+    #             **kwargs,
+    #         )
+    #     return
 
-    t = deepcopy(toas)
-    cluster_mask = t.table["clusters"] == cluster
-    t.select(cluster_mask)
-    if len(t) == 1:  # no phase wrapping possible
-        return
+    # if "clusters" not in toas.table.columns:
+    #     toas.table["clusters"] = toas.get_clusters(gap_limit=cluster_gap_limit * u.h)
+    # # if "pulse_number" not in toas.table.colnames:  ######
+    # # toas.compute_pulse_numbers(model)
+    # # if "delta_pulse_number" not in toas.table.colnames:
+    # # toas.table["delta_pulse_number"] = np.zeros(len(toas.get_mjds()))
 
-    residuals = residuals_total[cluster_mask]
-    mjds = mjds_total[cluster_mask]
-    # if True: # for debugging
-    #     print("#" * 100)
-    #     plt.plot(mjds, residuals)
-    #     plt.show()
-    # print(cluster_mask)
-    # print(residuals)
+    # # this must be recalculated evertime because the residuals change
+    # # if a delta_pulse_number is added
+    # residuals_total = pint.residuals.Residuals(toas, model).calc_phase_resids()
 
-    if connection_filter == "linear":
-        # residuals_dif = np.concatenate((residuals, np.zeros(1))) - np.concatenate(
-        #     (np.zeros(1), residuals)
-        # )
-        residuals_dif = residuals[1:] - residuals[:-1]
-        # "normalize" to speed up computation (it is slower on larger numbers)
-        residuals_dif_normalized = residuals_dif / max(residuals_dif)
+    # ####t = deepcopy(toas)
+    # ####cluster_mask = t.table["clusters"] == cluster
+    # ####t.select(cluster_mask)
+    # ####if len(t) == 1:  # no phase wrapping possible
+    # ####    return
+    # ####
+    # ####residuals = residuals_total[cluster_mask]
+    # ####mjds = mjds_total[cluster_mask]
+    # # if True: # for debugging
+    # #     print("#" * 100)
+    # #     plt.plot(mjds, residuals)
+    # #     plt.show()
+    # # print(cluster_mask)
+    # # print(residuals)
 
-        # This is the filter for phase connected within a cluster
-        if np.all(residuals_dif_normalized >= 0) or np.all(
-            residuals_dif_normalized <= 0
-        ):
-            return
+    # ##### the following is the old functionality where JUMPed clusters are unwrapped
+    # # if connection_filter == "np.unwrap":
+    # #     # use the np.unwrap function somehow
+    # #     residuals_unwrapped = np.unwrap(np.array(residuals), period=1)
+    # #     t.table["delta_pulse_number"] = residuals_unwrapped - residuals
+    # #     # print(t.table["delta_pulse_number"])
+    # #     toas.table[cluster_mask] = t.table
 
-        # another condition that means phase connection
-        if kwargs.get("wraps") and max(np.abs(residuals_dif)) < 0.4:
-            return
-        # print(max(np.abs(residuals_dif)))
-        # attempt to fix the phase wraps, then run recursion to either fix it again
-        # or verify it is fixed
+    # #     # this filter currently does not check itself
+    # #     return
 
-        biggest = 0
-        location_of_biggest = -1
-        biggest_is_pos = True
-        was_pos = True
-        count = 0
-        for i, is_pos in enumerate(residuals_dif_normalized >= 0):
-            if is_pos and was_pos or (not is_pos and not was_pos):
-                count += 1
-                was_pos = is_pos
-            elif is_pos or was_pos:  # slope flipped
-                if count > biggest:
-                    biggest = count
-                    location_of_biggest = i - 1
-                    biggest_is_pos = is_pos
-                count = 1
-                was_pos = is_pos
-            # do this check one last time in case the last point is part of the
-            # longest series of adjacent slopes
-            if count >= biggest and np.abs(residuals_dif_normalized[i]) < np.abs(
-                residuals_dif_normalized[i - 1]
-            ):
-                biggest = count
-                # not i - 1 because that last point is like the (i + 1)th element
-                location_of_biggest = i
-                # flipping slopes
-                biggest_is_pos = is_pos
-        if biggest_is_pos:
-            sign = 1
-        else:
-            sign = -1
-        # everything to the left move down if positive
-        t.table["delta_pulse_number"][: location_of_biggest - biggest + 1] = -1 * sign
-        # everything to the right move up if positive
-        t.table["delta_pulse_number"][location_of_biggest + 2 :] = sign
+    # if connection_filter == "linear":
+    #     # residuals_dif = np.concatenate((residuals, np.zeros(1))) - np.concatenate(
+    #     #     (np.zeros(1), residuals)
+    #     # )
+    #     residuals_dif = residuals[1:] - residuals[:-1]
+    #     # "normalize" to speed up computation (it is slower on larger numbers)
+    #     residuals_dif_normalized = residuals_dif / max(residuals_dif)
 
-        # finally, apply these to the original set
-        toas.table[cluster_mask] = t.table
+    #     # This is the filter for phase connected within a cluster
+    #     if np.all(residuals_dif_normalized >= 0) or np.all(
+    #         residuals_dif_normalized <= 0
+    #     ):
+    #         return
 
-    if connection_filter == "np.unwrap":
-        # use the np.unwrap function somehow
-        residuals_unwrapped = np.unwrap(np.array(residuals), period=1)
-        t.table["delta_pulse_number"] = residuals_unwrapped - residuals
-        # print(t.table["delta_pulse_number"])
-        toas.table[cluster_mask] = t.table
+    #     # another condition that means phase connection
+    #     if kwargs.get("wraps") and max(np.abs(residuals_dif)) < 0.4:
+    #         return
+    #     # print(max(np.abs(residuals_dif)))
+    #     # attempt to fix the phase wraps, then run recursion to either fix it again
+    #     # or verify it is fixed
 
-        # this filter currently does not check itself
-        return
+    #     biggest = 0
+    #     location_of_biggest = -1
+    #     biggest_is_pos = True
+    #     was_pos = True
+    #     count = 0
+    #     for i, is_pos in enumerate(residuals_dif_normalized >= 0):
+    #         if is_pos and was_pos or (not is_pos and not was_pos):
+    #             count += 1
+    #             was_pos = is_pos
+    #         elif is_pos or was_pos:  # slope flipped
+    #             if count > biggest:
+    #                 biggest = count
+    #                 location_of_biggest = i - 1
+    #                 biggest_is_pos = is_pos
+    #             count = 1
+    #             was_pos = is_pos
+    #         # do this check one last time in case the last point is part of the
+    #         # longest series of adjacent slopes
+    #         if count >= biggest and np.abs(residuals_dif_normalized[i]) < np.abs(
+    #             residuals_dif_normalized[i - 1]
+    #         ):
+    #             biggest = count
+    #             # not i - 1 because that last point is like the (i + 1)th element
+    #             location_of_biggest = i
+    #             # flipping slopes
+    #             biggest_is_pos = is_pos
+    #     if biggest_is_pos:
+    #         sign = 1
+    #     else:
+    #         sign = -1
+    #     # everything to the left move down if positive
+    #     t.table["delta_pulse_number"][: location_of_biggest - biggest + 1] = -1 * sign
+    #     # everything to the right move up if positive
+    #     t.table["delta_pulse_number"][location_of_biggest + 2 :] = sign
 
-    # run it again, will return None and end the recursion if nothing needs to be fixed
-    phase_connector(
-        toas,
-        model,
-        connection_filter,
-        cluster,
-        mjds_total,
-        residuals,
-        cluster_gap_limit,
-        **kwargs,
-    )
+    #     # finally, apply these to the original set
+    #     toas.table[cluster_mask] = t.table
+
+    # # run it again, will return None and end the recursion if nothing needs to be fixed
+    # phase_connector(
+    #     toas,
+    #     model,
+    #     connection_filter,
+    #     cluster,
+    #     mjds_total,
+    #     residuals,
+    #     cluster_gap_limit,
+    #     **kwargs,
+    # )
 
 
 def save_state(
@@ -1072,6 +1345,7 @@ def set_DECJ_lim(args):
         args.DECJ_lim = 1.3 * args.RAJ_lim
 
 
+# TODO make sure the JUMP changes keep this intact
 def quadratic_phase_wrap_checker(
     f,
     mask_with_closest,
@@ -1082,6 +1356,8 @@ def quadratic_phase_wrap_checker(
     args,
     solution_tree,
     unJUMPed_clusters,
+    cluster_distances,
+    cluster_to_JUMPs,
     folder=None,
     wrap_checker_iteration=1,
     iteration=1,
@@ -1122,11 +1398,31 @@ def quadratic_phase_wrap_checker(
             for wrap in [-b_i, 0, b_i]:
                 # print(f"wrap is {wrap}")
                 # m_copy = deepcopy(m)
+
                 t.table["delta_pulse_number"][closest_cluster_mask] = wrap
+
+                ########################################################### # TODO delete this testing block
+                # t.table["delta_pulse_number"] = 0
+                # t.compute_pulse_numbers(f.model)
+                # residuals = pint.residuals.Residuals(t, f.model).calc_phase_resids()
+
+                # If args.pre_save_state is False (default) then the save will not be saved
+                # save_state(
+                #     f,
+                #     f.model,
+                #     t,
+                #     mjds=t.get_mjds().value,
+                #     pulsar_name=args.pulsar_name,
+                #     args=args,
+                #     folder=folder,
+                #     iteration=f"i{iteration}_d{solution_tree.current_depth()}_c{closest_cluster}_b{wrap}",
+                #     save_plot=True,
+                #     mask_with_closest=mask_with_closest,
+                # )
+
+                ###########################################################
                 f.fit_toas(maxiter=maxiter_while)
-                # m_copy = do_Ftests(t, m_copy, mask_with_closest, args)
                 chisq_samples[wrap] = f.resids.chi2_reduced
-                ####f.reset_model()
                 f.model = deepcopy(m_copy)
 
             # if the loop did not encounter an error, then reassign b and end the loop
@@ -1147,7 +1443,7 @@ def quadratic_phase_wrap_checker(
                 response = input(
                     "Should APTB continue anyway, assuming no phase wraps for the next cluster? (y/n)"
                 )
-                if response == "y":
+                if response.lower() == "y":
                     return WLSFitter(t, m), t
                 else:
                     raise e
@@ -1247,6 +1543,8 @@ def quadratic_phase_wrap_checker(
             args,
             solution_tree,
             unJUMPed_clusters,
+            cluster_distances,
+            cluster_to_JUMPs,
             folder,
             wrap_checker_iteration + 1,
             iteration,
@@ -1301,6 +1599,8 @@ def quadratic_phase_wrap_checker(
             maxiter_while,
             args,
             unJUMPed_clusters,
+            cluster_distances,
+            cluster_to_JUMPs,
         )
         return None, None
 
@@ -1319,10 +1619,11 @@ def APTB_argument_parse(parser, argv):
     parser.add_argument(
         "--binary_model",
         help="which binary pulsar model to use.",
-        choices=["ELL1", "ell1", "BT", "bt"],
+        choices=["ELL1", "ell1", "BT", "bt", "DD", "dd"],
         default=None,
     )
     parser.add_argument(
+        "-sp",
         "--starting_points",
         help="mask array to apply to chose the starting points, clusters or mjds",
         type=str,
@@ -1671,10 +1972,18 @@ def APTB_argument_parse(parser, argv):
         default=2,
     )
     parser.add_argument(
+        "-n",
         "--pulsar_name",
         help="The name of pulsar. This will decide the folder name where the iterations are saved. Defaults to name in par file.",
         type=str,
         default=None,
+    )
+    parser.add_argument(
+        "-sd",
+        "--serial_depth",
+        help="The depth that APTB will no longer connect clusters serially.",
+        type=int,
+        default=3,
     )
 
     args = parser.parse_args(argv)
@@ -1752,13 +2061,16 @@ def main_for_loop(
 
     m = mb.get_model(parfile)
     print(f"1{m=}")
+    clusters = toas.table["clusters"]
+    cluster_max = np.max(clusters)
     m, t = JUMP_adder_begginning_cluster(
-        mask,
         toas,
         m,
-        output_timfile=alg_saves_mask_Path / Path(f"{pulsar_name}_start.tim"),
-        output_parfile=alg_saves_mask_Path / Path(f"{pulsar_name}_start.par"),
-        cluster_gap_limit=args.cluster_gap_limit,
+        args.cluster_gap_limit,
+        starting_cluster,
+        cluster_max,
+        mjds_total,
+        clusters,
     )
     t.compute_pulse_numbers(m)
     args.binary_model = m.BINARY.value
@@ -1890,37 +2202,62 @@ def main_for_loop(
         args.prune_condition = 1 + chisq_start
     log.info(f"args.prune_condition = {args.prune_condition}")
 
-    # the following list comprehension allows a JUMP number to be found
-    # by indexing this list with its cluster number. The wallrus operator
-    # is used for brevity.
-    j = 0
-    # cluster_to_JUMPs = [
-    #     f"JUMP{(j:=j+1)}" if i != starting_cluster else ""
-    #     for i in range(t.table["clusters"][-1] + 1)
-    # ]
-    skip_mask = False
+    # TODO test for bad MJDs
     bad_mjds = []
-    # mask_with_closest will be everything not JUMPed, as well as the next clusters
-    # to be unJUMPed
-    mask_with_closest = deepcopy(mask)
-    unJUMPed_clusters = np.array([starting_cluster])
+
+    # mask_with_closest will be everything where the JUMPs between them and a neighbor have been removed
+    mask_with_closest = deepcopy(clusters == 0)
+    # mask_with_closest = deepcopy(mask)
+
+    # unJUMPed_clusters = np.array([starting_cluster])
+    unJUMPed_clusters = np.array([0])
+    cluster_to_JUMPs = np.arange(1, cluster_max + 2)
+    # tim_jump = deepcopy(clusters)
+    cluster_distances = []
+    cluster_distances_dict = {}
+    for c in range(cluster_max):
+        c0_mjds = mjds_total[clusters == c]
+        c1_mjds = mjds_total[clusters == c + 1]
+        cluster_distances.append(np.min(c1_mjds) - np.max(c0_mjds))
+        cluster_distances_dict[cluster_distances[-1]] = c
+        cluster_distances_dict[c] = cluster_distances[-1]
 
     # this starts the solution tree
-
     solution_tree.current_parent_id = "Root"
     iteration = 0
     while True:
         # the main while True loop of the algorithm:
         iteration += 1
 
-        # find the closest cluster
-        closest_cluster, dist = get_closest_cluster(
-            deepcopy(t), deepcopy(t[mask_with_closest]), deepcopy(t)
-        )
-        print(
-            f"\n{colorama.Fore.LIGHTCYAN_EX}closest cluster: {closest_cluster}{colorama.Style.RESET_ALL}"
-        )
-        if closest_cluster is None:
+        if cluster_distances:
+            (
+                f,
+                t,
+                closest_cluster,
+                closest_cluster_group,
+                unJUMPed_clusters,
+                cluster_distances,
+                cluster_to_JUMPs,
+                adder,
+            ) = JUMP_remover_total(
+                f,
+                t,
+                unJUMPed_clusters,
+                cluster_distances,
+                cluster_distances_dict,
+                starting_cluster,
+                cluster_to_JUMPs,
+                solution_tree.current_depth(),
+                mjds_total,
+                clusters,
+                cluster_max,
+                args.serial_depth,
+            )
+
+            print(
+                f"\n{colorama.Fore.LIGHTCYAN_EX}Removing the JUMP between clusters {closest_cluster} and {closest_cluster+adder}{colorama.Style.RESET_ALL}"
+            )
+        else:
             # save this file
             correct_solution_procedure(
                 deepcopy(f),
@@ -1935,10 +2272,10 @@ def main_for_loop(
             )
 
             if args.find_all_solutions and args.branches:
-                # need to load the next best branch, but need to what happens after quad_phase_wrap_checker first
+                # need to load the next best branch, but need to do what happens after quad_phase_wrap_checker first
 
                 data, explored_name = solution_tree.node_selector(f, args, iteration)
-                f.model, unJUMPed_clusters = data
+                f.model, unJUMPed_clusters, cluster_distances, cluster_to_JUMPs = data
                 if f.model is None:
                     break
                 mask_with_closest = np.isin(f.toas.table["clusters"], unJUMPed_clusters)
@@ -1973,26 +2310,27 @@ def main_for_loop(
                 # end the program
                 break
 
-        closest_cluster_mask = t.table["clusters"] == closest_cluster
+        # closest_cluster_mask = clusters == closest_cluster
+        closest_cluster_mask = np.isin(clusters, closest_cluster_group)
 
         # TODO add polyfit here
         # random models can cover this instead
         # do slopes match from next few clusters, or does a quadratic/cubic fit
 
         mask_with_closest = np.logical_or(mask_with_closest, closest_cluster_mask)
-        unJUMPed_clusters = np.append(unJUMPed_clusters, closest_cluster)
+        # unJUMPed_clusters = np.append(unJUMPed_clusters, closest_cluster) # I already do this in JUMP_remover
 
         # print()
         # print(f"cluster to jumps = {cluster_to_JUMPs}")
-        if closest_cluster < starting_cluster:
-            closest_cluster_JUMP = f"JUMP{closest_cluster + 1}"
-        else:
-            closest_cluster_JUMP = f"JUMP{closest_cluster}"
+        # if closest_cluster < starting_cluster:
+        #     closest_cluster_JUMP = f"JUMP{closest_cluster + 1}"
+        # else:
+        #     closest_cluster_JUMP = f"JUMP{closest_cluster}"
 
-        # cluster_to_JUMPs[closest_cluster]
-        getattr(f.model, closest_cluster_JUMP).frozen = True
-        getattr(f.model, closest_cluster_JUMP).value = 0
-        getattr(f.model, closest_cluster_JUMP).uncertainty = 0
+        # # cluster_to_JUMPs[closest_cluster]
+        # getattr(f.model, closest_cluster_JUMP).frozen = True
+        # getattr(f.model, closest_cluster_JUMP).value = 0
+        # getattr(f.model, closest_cluster_JUMP).uncertainty = 0
         # seeing if removing the value of every JUMP helps
         # for JUMP in cluster_to_JUMPs:
         #     if JUMP and not getattr(m, JUMP).frozen:
@@ -2036,6 +2374,8 @@ def main_for_loop(
                 f,
                 mask_with_closest,
                 closest_cluster_mask,
+                cluster_distances=cluster_distances,
+                cluster_to_JUMPs=cluster_to_JUMPs,
                 b=5,
                 maxiter_while=maxiter_while,
                 closest_cluster=closest_cluster,
@@ -2051,7 +2391,16 @@ def main_for_loop(
                 if data is None:
                     solution_tree.show()
                     break
-                f.model, unJUMPed_clusters = data
+                try:
+                    (
+                        f.model,
+                        unJUMPed_clusters,
+                        cluster_distances,
+                        cluster_to_JUMPs,
+                    ) = data
+                except ValueError as e:
+                    print(f"data = {data}")
+                    raise e
                 if f.model is None:
                     break
                 mask_with_closest = np.isin(f.toas.table["clusters"], unJUMPed_clusters)
@@ -2340,6 +2689,7 @@ def main():
     all_toas_beggining = deepcopy(toas)
     if args.pulsar_name is None:
         pulsar_name = str(mb.get_model(parfile).PSR.value)
+        args.pulsar_name = pulsar_name
     else:
         pulsar_name = args.pulsar_name
     alg_saves_Path = Path(f"alg_saves/{pulsar_name}")
@@ -2470,10 +2820,7 @@ def main():
                     solution_tree.blueprint, solution_tree.node_iteration_dict
                 )
                 depth = skeleton_tree.depth()
-                # for node_key in skeleton_tree.nodes:
-                #     if f"d{depth}" in node_key:
-                #         print(solution_tree[node_key].data.unJUMPed_clusters)
-                #         break
+
                 skeleton_tree.show()
                 tree_file_name = solution_tree.save_location / Path(
                     "solution_tree.tree"
