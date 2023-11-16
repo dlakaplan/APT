@@ -1189,7 +1189,7 @@ def do_Ftests(f, mask_with_closest, args):
     m = f.model
 
     t_copy = deepcopy(t)
-    t_copy.select(mask_with_closest)
+    t_copy.select(mask_with_closest)  # TODO update this and the span variable
 
     # calculate the span of fit toas for comparison to minimum parameter spans
     span = t_copy.get_mjds().max() - t_copy.get_mjds().min()
@@ -1932,6 +1932,7 @@ def APTB_argument_parse(parser, argv):
         default=np.inf,
     )
     parser.add_argument(
+        "-pc",
         "--prune_condition",
         help="The reduced chisq above which to prune a branch.",
         type=float,
@@ -2814,7 +2815,7 @@ def main():
                 print(solution_tree.blueprint, "\n")
                 # print(solution_tree.explored_blueprint)
                 skeleton_tree = APTB_extension.skeleton_tree_creator(
-                    solution_tree.blueprint
+                    solution_tree.blueprint, blueprint_string = True
                 )
                 explored_tree = APTB_extension.skeleton_tree_creator(
                     solution_tree.blueprint, solution_tree.node_iteration_dict
