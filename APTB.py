@@ -44,6 +44,8 @@ class CustomTree(treelib.Tree):
         explored_blueprint=None,
         save_location=Path.cwd(),
         node_iteration_dict={"Root": 0},
+        g=list(),
+        G=None,
     ):
         super().__init__(tree, deep, node_class, identifier)
 
@@ -213,7 +215,7 @@ class CustomTree(treelib.Tree):
             print("In branch_creator:")
             print(f"\tchisq_wrap = {chisq_wrap}")
             print(f"\tbranches = {branches}")
-            print(f"\tchisq_accepted = {chisq_accepted}")
+            print(f"\tchisq_accepted = {chisq_accepted}") #TODO use chisq_accepted to populate solution_tree.g and solution_tree.G
         order = [branches[chisq] for chisq in chisq_list]
         self[current_parent_id].order = order
 
@@ -2059,11 +2061,13 @@ def main_for_loop(
         alg_saves_mask_Path.mkdir()
 
     solution_tree.save_location = alg_saves_mask_Path
+    solution_tree.g = list()
+    solution_tree.G = dict()
 
     m = mb.get_model(parfile)
     print(f"1{m=}")
     clusters = toas.table["clusters"]
-    cluster_max = np.max(clusters)
+    cluster_max = max_depth = np.max(clusters)
     m, t = JUMP_adder_begginning_cluster(
         toas,
         m,
@@ -2814,11 +2818,16 @@ def main():
             finally:
                 print(solution_tree.blueprint, "\n")
                 # print(solution_tree.explored_blueprint)
-                skeleton_tree = APTB_extension.skeleton_tree_creator(
-                    solution_tree.blueprint, blueprint_string = True
+                skeleton_tree, normal_bp_string = APTB_extension.skeleton_tree_creator(
+                    solution_tree.blueprint, blueprint_string=True
                 )
-                explored_tree = APTB_extension.skeleton_tree_creator(
-                    solution_tree.blueprint, solution_tree.node_iteration_dict
+                (
+                    explored_tree,
+                    explored_bp_string,
+                ) = APTB_extension.skeleton_tree_creator(
+                    solution_tree.blueprint,
+                    solution_tree.node_iteration_dict,
+                    blueprint_string=True,
                 )
                 depth = skeleton_tree.depth()
 
@@ -2834,10 +2843,21 @@ def main():
 
                 with open(tree_file_name, "a") as file:
                     file.write("\n")
-                    file.write(str(solution_tree.blueprint))
+                    # file.write(str(solution_tree.blueprint))
+                    file.write(
+                        "The following allows for the reconstruction of the tree:\n"
+                    )
+                    file.write(normal_bp_string)
                 with open(explored_tree_file_name, "a") as file:
                     file.write("\n")
-                    file.write(str(solution_tree.node_iteration_dict))
+                    # file.write(str(solution_tree.node_iteration_dict))
+                    file.write(
+                        "The following allows for the reconstruction of the tree:\n"
+                    )
+                    file.write(explored_bp_string)
+
+                with open(alg_saves_Path / Path("argument_file.txt"), "w") as file:
+                    file.write(args)
 
                 print(f"tree depth = {depth}")
                 mask_end_time = time.monotonic()

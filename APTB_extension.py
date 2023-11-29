@@ -107,7 +107,7 @@ def do_Ftests_binary(m, t, f, f_params, span, Ftests, args):
     return m, t, f, f_params, span, Ftests, args
 
 
-def skeleton_tree_creator(blueprint, iteration_dict=None):
+def skeleton_tree_creator(blueprint, iteration_dict=None, blueprint_string=False):
     """
     This creates what the tree looks like, without any of the data attributes.
 
@@ -122,6 +122,7 @@ def skeleton_tree_creator(blueprint, iteration_dict=None):
     tree = treelib.Tree()
     tree.create_node("Root", "Root")
     U_counter = 0
+    bp_string = ""
     if iteration_dict:
         for parent, child in blueprint:
             # while tree.contains(child):
@@ -134,9 +135,15 @@ def skeleton_tree_creator(blueprint, iteration_dict=None):
             d_index = child.index("d")
             child = f"i{iteration_dict.get(child, f'U{(U_counter:=U_counter+1)}')}_{child[d_index:i_index-1]}"
             tree.create_node(child, child, parent=parent)
+            if blueprint_string:
+                bp_string += f"{parent},{child};"
     else:
         for parent, child in blueprint:
             # while tree.contains(child):
             #     child += child[-1]
             tree.create_node(child, child, parent=parent)
+            if blueprint_string:
+                bp_string += "parent,child;"
+    if blueprint_string:
+        return tree, bp_string[:-1]
     return tree
