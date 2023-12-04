@@ -215,7 +215,9 @@ class CustomTree(treelib.Tree):
             print("In branch_creator:")
             print(f"\tchisq_wrap = {chisq_wrap}")
             print(f"\tbranches = {branches}")
-            print(f"\tchisq_accepted = {chisq_accepted}") #TODO use chisq_accepted to populate solution_tree.g and solution_tree.G
+            print(
+                f"\tchisq_accepted = {chisq_accepted}"
+            )  # TODO use chisq_accepted to populate solution_tree.g and solution_tree.G
         order = [branches[chisq] for chisq in chisq_list]
         self[current_parent_id].order = order
 
@@ -1989,6 +1991,22 @@ def APTB_argument_parse(parser, argv):
         default=3,
     )
 
+    parser.add_argument(
+        "-pwss",
+        "--pwss_estimate",
+        help="The iteration APTB will estimate the size of the solution tree..",
+        type=int,
+        default=35,
+    )
+
+    parser.add_argument(
+        "-i",
+        "--iteration_limit",
+        help="The iteration APTB will estimate the size of the solution tree..",
+        type=int,
+        default=10000,  # TODO change this to 2000 (maybe 1000?) for any public version. Ter5aq takes 90 minutes for i = ~500 (10 seconds/iteration)
+    )
+
     args = parser.parse_args(argv)
 
     if args.branches and not args.check_phase_wraps:
@@ -2230,7 +2248,7 @@ def main_for_loop(
     # this starts the solution tree
     solution_tree.current_parent_id = "Root"
     iteration = 0
-    while True:
+    while iteration < args.iteration_limit:
         # the main while True loop of the algorithm:
         iteration += 1
 
@@ -2644,16 +2662,11 @@ def main():
     )
     args, parser = APTB_argument_parse(parser, argv=None)
 
-    # print(type(args))
-    # raise Exception("stop")
-
-    # args, parser, mask_selector = main_args
-    flag_name = "jump_tim"
-
-    # read in arguments from the command line
-
-    """required = parfile, timfile"""
-    """optional = starting points, param ranges"""
+    # save the inputted arguments to a file so can checked later
+    # should save this string now before the args object is changed
+    args_log = ""
+    for arg in vars(args):
+        args_log += f"{arg}={getattr(args, arg)}\n"
 
     # if given starting points from command line, check if ints (group numbers) or floats (mjd values)
     start_type = None
@@ -2678,12 +2691,12 @@ def main():
     original_path = Path.cwd()
     data_path = Path(args.data_path)
 
-    #### FIXME When fulled implemented, DELETE the following line
-    if socket.gethostname()[0] == "J":
-        data_path = Path.cwd()
-    # else:
-    #     data_path = Path("/data1/people/jdtaylor")
-    ####
+    # #### FIXME When fulled implemented, DELETE the following line
+    # if socket.gethostname()[0] == "J":
+    #     data_path = Path.cwd()
+    # # else:
+    # #     data_path = Path("/data1/people/jdtaylor")
+    # ####
     os.chdir(data_path)
 
     toas = pint.toa.get_TOAs(timfile)
@@ -2700,6 +2713,9 @@ def main():
     alg_saves_Path = Path(f"alg_saves/{pulsar_name}")
     if not alg_saves_Path.exists():
         alg_saves_Path.mkdir(parents=True)
+
+    with open(alg_saves_Path / Path("arguments.txt"), "w") as file:
+        file.write(args_log)
 
     set_RAJ_lim(args, parfile)
     set_DECJ_lim(args)
@@ -2855,9 +2871,6 @@ def main():
                         "The following allows for the reconstruction of the tree:\n"
                     )
                     file.write(explored_bp_string)
-
-                with open(alg_saves_Path / Path("argument_file.txt"), "w") as file:
-                    file.write(args)
 
                 print(f"tree depth = {depth}")
                 mask_end_time = time.monotonic()
