@@ -1988,13 +1988,13 @@ def APTB_argument_parse(parser, argv):
         "--serial_depth",
         help="The depth that APTB will no longer connect clusters serially.",
         type=int,
-        default=3,
+        default=np.inf,
     )
 
     parser.add_argument(
         "-pwss",
         "--pwss_estimate",
-        help="The iteration APTB will estimate the size of the solution tree..",
+        help="The iteration at which APTB will estimate the size of the solution tree.",
         type=int,
         default=35,
     )
@@ -2002,7 +2002,7 @@ def APTB_argument_parse(parser, argv):
     parser.add_argument(
         "-i",
         "--iteration_limit",
-        help="The iteration APTB will estimate the size of the solution tree..",
+        help="The iteration at which APTB will stop, whether it found a solution or not.",
         type=int,
         default=10000,  # TODO change this to 2000 (maybe 1000?) for any public version. Ter5aq takes 90 minutes for i = ~500 (10 seconds/iteration)
     )
