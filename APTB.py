@@ -494,24 +494,6 @@ def JUMP_adder_begginning_cluster(
     """
     if "clusters" not in t.table.columns:
         t.table["clusters"] = t.get_clusters(gap_limit=cluster_gap_limit * u.h)
-    # flag_name = "tim_jump"
-
-    # former_cluster = t.table[mask]["clusters"][0]
-    # j = 0
-    # for i, table in enumerate(t.table[~mask]):
-    #     table["flags"][flag_name] = str(table["clusters"])
-    # t.write_TOA_file(output_timfile)
-
-    # model.jump_flags_to_params(t)
-
-    # TODO delete this workaround:
-    # ### (workaround surrounded in ###)
-    # with open(output_parfile, "w") as parfile:
-    #     parfile.write(model.as_parfile())
-    #     for i in set(t.table[~mask]["clusters"]):
-    #         parfile.write(f"JUMP\t\t-{flag_name} {i}\t0 1 0\n")
-    # model = mb.get_model(output_parfile)
-    ###
 
     # this adds the JUMPs based on the MJD range in which they apply
     m.add_component(PhaseJump(), validate=False)
@@ -540,7 +522,7 @@ def JUMP_remover_decider(depth, starting_cluster, smallest_distance, serial_dept
     # returning True means do serial
     # TODO incorporate some level of decision making here
 
-    # This is a good start for now. serial_depth could a commandline argument
+    # This is a good start for now
     return True if depth < serial_depth else False
 
 
@@ -1400,31 +1382,7 @@ def quadratic_phase_wrap_checker(
         chisq_samples = {}
         try:
             for wrap in [-b_i, 0, b_i]:
-                # print(f"wrap is {wrap}")
-                # m_copy = deepcopy(m)
-
                 t.table["delta_pulse_number"][closest_cluster_mask] = wrap
-
-                ########################################################### # TODO delete this testing block
-                # t.table["delta_pulse_number"] = 0
-                # t.compute_pulse_numbers(f.model)
-                # residuals = pint.residuals.Residuals(t, f.model).calc_phase_resids()
-
-                # If args.pre_save_state is False (default) then the save will not be saved
-                # save_state(
-                #     f,
-                #     f.model,
-                #     t,
-                #     mjds=t.get_mjds().value,
-                #     pulsar_name=args.pulsar_name,
-                #     args=args,
-                #     folder=folder,
-                #     iteration=f"i{iteration}_d{solution_tree.current_depth()}_c{closest_cluster}_b{wrap}",
-                #     save_plot=True,
-                #     mask_with_closest=mask_with_closest,
-                # )
-
-                ###########################################################
                 f.fit_toas(maxiter=maxiter_while)
                 chisq_samples[wrap] = f.resids.chi2_reduced
                 f.model = deepcopy(m_copy)
@@ -1512,7 +1470,6 @@ def quadratic_phase_wrap_checker(
         f.fit_toas(maxiter=maxiter_while)
         # print(f"{f.model.F1.value=}")
         print(f"reduced chisq is {f.resids.chi2_reduced}")
-        # TODO add a check on the chisq here
 
         phase_connector(
             t,
@@ -2342,23 +2299,6 @@ def main_for_loop(
 
         mask_with_closest = np.logical_or(mask_with_closest, closest_cluster_mask)
         # unJUMPed_clusters = np.append(unJUMPed_clusters, closest_cluster) # I already do this in JUMP_remover
-
-        # print()
-        # print(f"cluster to jumps = {cluster_to_JUMPs}")
-        # if closest_cluster < starting_cluster:
-        #     closest_cluster_JUMP = f"JUMP{closest_cluster + 1}"
-        # else:
-        #     closest_cluster_JUMP = f"JUMP{closest_cluster}"
-
-        # # cluster_to_JUMPs[closest_cluster]
-        # getattr(f.model, closest_cluster_JUMP).frozen = True
-        # getattr(f.model, closest_cluster_JUMP).value = 0
-        # getattr(f.model, closest_cluster_JUMP).uncertainty = 0
-        # seeing if removing the value of every JUMP helps
-        # for JUMP in cluster_to_JUMPs:
-        #     if JUMP and not getattr(m, JUMP).frozen:
-        #         getattr(m, JUMP).value = 0
-        #         getattr(m, JUMP).uncertainty = 0
 
         t.table["delta_pulse_number"] = 0
         t.compute_pulse_numbers(f.model)
