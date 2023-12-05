@@ -94,7 +94,8 @@ class CustomTree(treelib.Tree):
         unJUMPed_clusters : an array of the number every serially unJUMPed cluster
         """
         current_parent_id = self.current_parent_id
-        depth = self.depth(current_parent_id) + 1
+        parent_depth = self.depth(current_parent_id)
+        depth = parent_depth + 1  # depth of the models about to be created
         m_copy = deepcopy(f.model)
         t = f.toas
 
@@ -218,6 +219,11 @@ class CustomTree(treelib.Tree):
             print(
                 f"\tchisq_accepted = {chisq_accepted}"
             )  # TODO use chisq_accepted to populate solution_tree.g and solution_tree.G
+        growth = len(chisq_accepted)
+        self.g.append(growth)
+        self.G[parent_depth] = self.G.get(parent_depth, list())
+        self.G[parent_depth].append(growth)
+
         order = [branches[chisq] for chisq in chisq_list]
         self[current_parent_id].order = order
 
@@ -294,6 +300,45 @@ class CustomTree(treelib.Tree):
         Wrapper function for depth. Meant to declutter.
         """
         return self.depth(self.current_parent_id)
+
+    def pwss_size_estimate(self):
+        """
+        This function estimates the size of the solution tree. It uses the information on the
+        number of branches per parent (g) and all of the g's at the same depth (stored in G).
+        Then, applying Equation 3 and assuming Equation 4 of the APTB paper, it calculates
+        the PWSS size estimate based on the current available tree, as yet explored.
+
+        Returns
+        -------
+        int
+            The estimated size of the PWSS
+        """
+        g = np.array(self.g)
+        G = self.G
+
+        g2_mask = g >= 2
+        g2 = g[g2_mask]
+        r1 = np.average(g2)
+        print(f"r1 = {r1}")
+
+        g1 = g[~g2_mask]
+        r2 = np.average(g1)
+        print(f"r2 = {r2}")
+        d0 = self.depth() + 1
+        for k in range(self.depth() + 1):
+            G_k = G[k]
+            G_k_avg = np.average(G_k)
+            if np.abs(G_k_avg - r2) < np.abs(G_k_avg - r1):
+                d0 = k
+                break
+        print(f"d0 = {d0}")
+
+        W = [
+            r1**d if d <= d0 else r1**d0 * r2 ** (d - d0)
+            for d in range(self.depth() + 1)
+        ]
+
+        return sum(W)
 
 
 class CustomNode(treelib.Node):
@@ -764,10 +809,6 @@ def phase_connector(
     -------
     None
     """
-    # print(f"cluster {cluster}")
-
-    # this function can perform the neccesary actions on all clusters using either
-    # np.unwrap or recursion
 
     # these need to be reset before unwrapping occurs
     toas.table["delta_pulse_number"] = np.zeros(len(toas.get_mjds()))
@@ -775,157 +816,6 @@ def phase_connector(
 
     residuals_unwrapped = np.unwrap(np.array(residuals), period=1)
     toas.table["delta_pulse_number"] = residuals_unwrapped - residuals
-
-    # The following is commented out and will be deleted once extensive testing is done.
-    # The "linear" connection filter should be saved though.
-
-    # if mjds_total is None:
-    #     mjds_total = toas.get_mjds().value
-
-    # if cluster == "all":
-    #     if connection_filter == "np.unwrap":
-    #         # t = deepcopy(toas)
-    #         # mask_with_closest = kwargs.get(
-    #         #     "mask_with_closest", np.zeros(len(toas), dtype=bool)
-    #         # )
-    #         # t.select(~mask_with_closest)
-    #         # residuals_unwrapped = np.unwrap(
-    #         #     np.array(residuals[~mask_with_closest]), period=1
-    #         # )
-    #         # t.table["delta_pulse_number"] = (
-    #         #     residuals_unwrapped - residuals[~mask_with_closest]
-    #         # )
-    #         # toas.table[~mask_with_closest] = t.table
-    #         # return
-    #         # t = deepcopy(toas)
-    #         # mask_with_closest = kwargs.get(
-    #         #     "mask_with_closest", np.zeros(len(toas), dtype=bool)
-    #         # )
-    #         # t.select(~mask_with_closest)
-    #         residuals_unwrapped = np.unwrap(np.array(residuals), period=1)
-    #         toas.table["delta_pulse_number"] = residuals_unwrapped - residuals
-    #         # toas.table = t.table
-    #         return
-    #     for cluster_number in set(toas["clusters"]):
-    #         phase_connector(
-    #             toas,
-    #             model,
-    #             connection_filter,
-    #             cluster_number,
-    #             mjds_total,
-    #             residuals,
-    #             cluster_gap_limit,
-    #             **kwargs,
-    #         )
-    #     return
-
-    # if "clusters" not in toas.table.columns:
-    #     toas.table["clusters"] = toas.get_clusters(gap_limit=cluster_gap_limit * u.h)
-    # # if "pulse_number" not in toas.table.colnames:  ######
-    # # toas.compute_pulse_numbers(model)
-    # # if "delta_pulse_number" not in toas.table.colnames:
-    # # toas.table["delta_pulse_number"] = np.zeros(len(toas.get_mjds()))
-
-    # # this must be recalculated evertime because the residuals change
-    # # if a delta_pulse_number is added
-    # residuals_total = pint.residuals.Residuals(toas, model).calc_phase_resids()
-
-    # ####t = deepcopy(toas)
-    # ####cluster_mask = t.table["clusters"] == cluster
-    # ####t.select(cluster_mask)
-    # ####if len(t) == 1:  # no phase wrapping possible
-    # ####    return
-    # ####
-    # ####residuals = residuals_total[cluster_mask]
-    # ####mjds = mjds_total[cluster_mask]
-    # # if True: # for debugging
-    # #     print("#" * 100)
-    # #     plt.plot(mjds, residuals)
-    # #     plt.show()
-    # # print(cluster_mask)
-    # # print(residuals)
-
-    # ##### the following is the old functionality where JUMPed clusters are unwrapped
-    # # if connection_filter == "np.unwrap":
-    # #     # use the np.unwrap function somehow
-    # #     residuals_unwrapped = np.unwrap(np.array(residuals), period=1)
-    # #     t.table["delta_pulse_number"] = residuals_unwrapped - residuals
-    # #     # print(t.table["delta_pulse_number"])
-    # #     toas.table[cluster_mask] = t.table
-
-    # #     # this filter currently does not check itself
-    # #     return
-
-    # if connection_filter == "linear":
-    #     # residuals_dif = np.concatenate((residuals, np.zeros(1))) - np.concatenate(
-    #     #     (np.zeros(1), residuals)
-    #     # )
-    #     residuals_dif = residuals[1:] - residuals[:-1]
-    #     # "normalize" to speed up computation (it is slower on larger numbers)
-    #     residuals_dif_normalized = residuals_dif / max(residuals_dif)
-
-    #     # This is the filter for phase connected within a cluster
-    #     if np.all(residuals_dif_normalized >= 0) or np.all(
-    #         residuals_dif_normalized <= 0
-    #     ):
-    #         return
-
-    #     # another condition that means phase connection
-    #     if kwargs.get("wraps") and max(np.abs(residuals_dif)) < 0.4:
-    #         return
-    #     # print(max(np.abs(residuals_dif)))
-    #     # attempt to fix the phase wraps, then run recursion to either fix it again
-    #     # or verify it is fixed
-
-    #     biggest = 0
-    #     location_of_biggest = -1
-    #     biggest_is_pos = True
-    #     was_pos = True
-    #     count = 0
-    #     for i, is_pos in enumerate(residuals_dif_normalized >= 0):
-    #         if is_pos and was_pos or (not is_pos and not was_pos):
-    #             count += 1
-    #             was_pos = is_pos
-    #         elif is_pos or was_pos:  # slope flipped
-    #             if count > biggest:
-    #                 biggest = count
-    #                 location_of_biggest = i - 1
-    #                 biggest_is_pos = is_pos
-    #             count = 1
-    #             was_pos = is_pos
-    #         # do this check one last time in case the last point is part of the
-    #         # longest series of adjacent slopes
-    #         if count >= biggest and np.abs(residuals_dif_normalized[i]) < np.abs(
-    #             residuals_dif_normalized[i - 1]
-    #         ):
-    #             biggest = count
-    #             # not i - 1 because that last point is like the (i + 1)th element
-    #             location_of_biggest = i
-    #             # flipping slopes
-    #             biggest_is_pos = is_pos
-    #     if biggest_is_pos:
-    #         sign = 1
-    #     else:
-    #         sign = -1
-    #     # everything to the left move down if positive
-    #     t.table["delta_pulse_number"][: location_of_biggest - biggest + 1] = -1 * sign
-    #     # everything to the right move up if positive
-    #     t.table["delta_pulse_number"][location_of_biggest + 2 :] = sign
-
-    #     # finally, apply these to the original set
-    #     toas.table[cluster_mask] = t.table
-
-    # # run it again, will return None and end the recursion if nothing needs to be fixed
-    # phase_connector(
-    #     toas,
-    #     model,
-    #     connection_filter,
-    #     cluster,
-    #     mjds_total,
-    #     residuals,
-    #     cluster_gap_limit,
-    #     **kwargs,
-    # )
 
 
 def save_state(
@@ -2289,6 +2179,25 @@ def main_for_loop(
             else:
                 # end the program
                 break
+
+        if iteration % args.iteration_estimate == 0:
+            S = solution_tree.pwss_size_estimate()
+            T = time.monotonic() - start_time
+            tau = T / iteration
+            print("\n" * 3 + "#" * 100)
+            print(f"Phase wrap search space (PWSS) size estimator (beta):")
+            print(f"Iterations completed = {iteration}")
+            print(f"Time elapsed (T) = {T}")
+            print(f"Time per iteration (tau) = {tau}", end="\n\n")
+            print(f"Estimated size of the total PWSS = {S}")
+            print(f"Estimated total time (S * tau) = {S * tau}")
+            print(f"Estimated time remaining (S * tau - T) = {S * tau - T}")
+            print("#" * 100 + "\n" * 3)
+
+            if True:  # remove this after testing
+                print(f"g = {solution_tree.g}")
+                print(f"G = {solution_tree.G}")
+                raise Exception("test stop")
 
         # closest_cluster_mask = clusters == closest_cluster
         closest_cluster_mask = np.isin(clusters, closest_cluster_group)
