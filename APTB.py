@@ -320,24 +320,34 @@ class CustomTree(treelib.Tree):
         g2 = g[g2_mask]
         r1 = np.average(g2)
         r1_max = np.max(g)
-        print(f"r1 = {r1}")
+        # print(f"r1 = {r1}")
+        # print(f"r1_max = {r1_max}")
 
         g1 = g[~g2_mask]
         r2 = np.average(g1)
-        print(f"r2 = {r2}")
-        d0 = self.depth() + 1
-        for k in range(self.depth() + 1):
+        # print(f"r2 = {r2}")
+        D = max(G.keys())
+        d0 = D + 1
+        for k in range(D + 1):
             G_k = G[k]
             G_k_avg = np.average(G_k)
             if np.abs(G_k_avg - r2) < np.abs(G_k_avg - r1):
                 d0 = k
                 break
-        print(f"d0 = {d0}")
+        # print(f"d0 = {d0}")
 
         W = [
             r1_max**d if d <= d0 else r1_max**d0 * r2 ** (d - d0)
-            for d in range(self.depth() + 1)
+            for d in range(D + 1)
         ]
+
+        ### TODO figure out what to do with these
+        self.r1 = r1
+        self.r1_max = r1_max
+        self.d0 = d0
+        self.r2 = r2
+        self.W = W
+        ###
 
         return sum(W)
 
@@ -565,6 +575,24 @@ def JUMP_adder_begginning_cluster(
 
 
 def JUMP_remover_decider(depth, starting_cluster, smallest_distance, serial_depth):
+    """Decides which JUMP to remove
+
+    Parameters
+    ----------
+    depth : int
+        The depth of the current model
+    starting_cluster : int
+        The starting clustern umber
+    smallest_distance : int
+        The smallest distance between clusters
+    serial_depth : int
+        The depth at which APTB will no longer serially phase connect
+
+    Returns
+    -------
+    Boolean
+        Whether APTB will serially connect or not
+    """
     # returning True means do serial
     # TODO incorporate some level of decision making here
 
@@ -575,6 +603,28 @@ def JUMP_remover_decider(depth, starting_cluster, smallest_distance, serial_dept
 def JUMP_remover(
     left_cluster, cluster_distances, distance, cluster_to_JUMPs, unJUMPed_clusters, m
 ):
+    """Removed JUMP
+
+    Parameters
+    ----------
+    left_cluster : int
+        The cluster to the left of the gap being mapped
+    cluster_distances : np.ndarray
+        An array of the distances between clusters
+    distance : float
+        The smallest time between clusters
+    cluster_to_JUMPs : list
+        The list that gives the JUMP number of the cluster being indexed
+    unJUMPed_clusters : list
+        All clusters that have unJUMPed relative to some anchor cluster
+    m : model object
+
+    Returns
+    -------
+    tuple
+        left_cluster, cluster_distances, cluster_to_JUMPs, unJUMPed_clusters, m, anchor_jump_numb, right_cluster, removed_JUMP_numb,
+    """
+
     right_cluster = left_cluster + 1
     cluster_distances.remove(distance)
     anchor_jump_numb = cluster_to_JUMPs[left_cluster]
@@ -619,6 +669,38 @@ def JUMP_remover_total(
     cluster_max,
     serial_depth,
 ):
+    """Takes care of all JUMP removing and decision making
+
+    Parameters
+    ----------
+    f : fitter object
+    t : TOA object
+    unJUMPed_clusters : _type_
+        _description_
+    cluster_distances : np.array
+        distances between successive clusters
+    cluster_distances_dict : _type_
+        _description_
+    starting_cluster : int
+        The starting clustern umber
+    cluster_to_JUMPs : list
+        The list that gives the JUMP number of the cluster being indexed
+    depth : int
+        The depth of the current model
+    mjds : np.ndarray
+        Array of the TOAs' MJDs
+    clusters : np.ndarray
+        Array of clusters that directly corresponds to each TOA
+    cluster_max : int
+        The highest cluster number
+    serial_depth : int
+        The depth at which APTB will no longer serially phase connect
+
+    Returns
+    -------
+    tuple
+        f, t, closest_cluster, closest_cluster_group, unJUMPed_clusters, cluster_distances, cluster_to_JUMPs, adder,
+    """
     cluster_to_JUMPs_old = cluster_to_JUMPs.copy()
     smallest_distance = np.min(cluster_distances)
     serial = JUMP_remover_decider(
@@ -645,23 +727,6 @@ def JUMP_remover_total(
             unJUMPed_clusters,
             m,
         )
-        # right_cluster = left_cluster + 1
-        # cluster_distances.remove(smallest_distance)
-        # anchor_jump_numb = cluster_to_JUMPs[left_cluster]
-
-        # removed_JUMP_numb = cluster_to_JUMPs[right_cluster]
-        # removed_JUMP_attr = f"JUMP{removed_JUMP_numb}"
-        # getattr(m, removed_JUMP_attr).frozen = True
-        # getattr(m, removed_JUMP_attr).value = 0
-        # getattr(m, removed_JUMP_attr).uncertainty = 0
-        # cluster_to_JUMPs[cluster_to_JUMPs == removed_JUMP_numb] = cluster_to_JUMPs[
-        #     left_cluster
-        # ]
-
-        # right_mjd = getattr(m, removed_JUMP_attr).key_value[1]
-        # getattr(m, f"JUMP{anchor_jump_numb}").key_value[1] = right_mjd
-
-        # unJUMPed_clusters = np.append(unJUMPed_clusters, [left_cluster, right_cluster])
 
     else:
         starting_cluster_jump_numb = cluster_to_JUMPs[starting_cluster]
@@ -2174,15 +2239,23 @@ def main_for_loop(
             terminal_message += f"Estimated time remaining (S * tau - T) = {round(S * tau - T)} s ({round((S * tau - T)/60)} m)\n"
             terminal_message += f"\ng = {solution_tree.g}\n"
             terminal_message += f"G = {solution_tree.G}\n\n"
+            terminal_message += f"r1 = {solution_tree.r1}\n"
+            terminal_message += f"r1_max = {solution_tree.r1_max}\n"
+            terminal_message += f"r2 = {solution_tree.r2}\n"
+            terminal_message += f"d0 = {solution_tree.d0}\n"
+            terminal_message += f"W = {solution_tree.W}\n"
             print("\n" * 3 + "#" * 100)
             print(terminal_message)
             print("#" * 100 + "\n" * 3)
+            terminal_message += "#" * 100 + "\n\n"
 
-            with open(alg_saves_mask_Path / Path("estimate_file.txt"), "a") as file:
+            with open(
+                alg_saves_mask_Path / Path("time_estimate_file.txt"), "a"
+            ) as file:
                 file.write(terminal_message)
 
-            # if True:  # remove this after testing
-            #     raise Exception("test stop")
+            if True:  # remove this after testing
+                raise Exception("test stop")
 
         # closest_cluster_mask = clusters == closest_cluster
         closest_cluster_mask = np.isin(clusters, closest_cluster_group)
