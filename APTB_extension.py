@@ -107,7 +107,9 @@ def do_Ftests_binary(m, t, f, f_params, span, Ftests, args):
     return m, t, f, f_params, span, Ftests, args
 
 
-def skeleton_tree_creator(blueprint, iteration_dict=None, blueprint_string=False):
+def skeleton_tree_creator(
+    blueprint, iteration_dict=None, blueprint_string=False, format="tuple"
+):
     """
     This creates what the tree looks like, without any of the data attributes.
 
@@ -123,7 +125,7 @@ def skeleton_tree_creator(blueprint, iteration_dict=None, blueprint_string=False
     tree.create_node("Root", "Root")
     U_counter = 0
     bp_string = ""
-    if iteration_dict:
+    if iteration_dict and format == "tuple":
         for parent, child in blueprint:
             # while tree.contains(child):
             #     child += child[-1]
@@ -137,13 +139,22 @@ def skeleton_tree_creator(blueprint, iteration_dict=None, blueprint_string=False
             tree.create_node(child, child, parent=parent)
             if blueprint_string:
                 bp_string += f"{parent},{child};"
-    else:
+    elif format == "tuple":
         for parent, child in blueprint:
             # while tree.contains(child):
             #     child += child[-1]
             tree.create_node(child, child, parent=parent)
             if blueprint_string:
                 bp_string += "parent,child;"
+    elif format == "string":
+        for parent_child in blueprint:
+            parent, child = parent_child.split(",")
+            # while tree.contains(child):
+            #     child += child[-1]
+            tree.create_node(child, child, parent=parent)
+    else:
+        print(f"format = {format}")
+        raise Exception("Unsupported blueprint format")
     if blueprint_string:
         return tree, bp_string[:-1]
     return tree

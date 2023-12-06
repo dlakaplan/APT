@@ -319,6 +319,7 @@ class CustomTree(treelib.Tree):
         g2_mask = g >= 2
         g2 = g[g2_mask]
         r1 = np.average(g2)
+        r1_max = np.max(g)
         print(f"r1 = {r1}")
 
         g1 = g[~g2_mask]
@@ -334,7 +335,7 @@ class CustomTree(treelib.Tree):
         print(f"d0 = {d0}")
 
         W = [
-            r1**d if d <= d0 else r1**d0 * r2 ** (d - d0)
+            r1_max**d if d <= d0 else r1_max**d0 * r2 ** (d - d0)
             for d in range(self.depth() + 1)
         ]
 
@@ -1346,6 +1347,11 @@ def quadratic_phase_wrap_checker(
             # raise RecursionError(
             #     "In quadratic_phase_wrap_checker: maximum recursion depth exceeded (2)"
             # )
+            parent_depth = solution_tree.depth(solution_tree.current_parent_id)
+            growth = 0
+            solution_tree.g.append(growth)
+            solution_tree.G[parent_depth] = solution_tree.G.get(parent_depth, list())
+            solution_tree.G[parent_depth].append(growth)
 
             # a tuple must be returned
             return None, None
@@ -1408,34 +1414,6 @@ def quadratic_phase_wrap_checker(
         f"Attemping a phase wrap of {min_wrap_number_total} on closest cluster (cluster {closest_cluster}).\n"
         + f"\tMin reduced chisq = {min_chisq}"
     )
-    # if min_wrap_number_total != 0:
-
-    #     log.info("Phase wrap not equal to 0.")
-    #     print("#" * 100)
-    #     print(f"Phase wrap not equal to 0.")
-    #     print("#" * 100)
-    #     chisq_wrap_notzero = {}
-    #     for wrap in range(min_wrap_number_total - 10, min_wrap_number_total + 11):
-    #         # print(wrap)
-    #         t.table["delta_pulse_number"][closest_cluster_mask] = wrap
-    #         f.fit_toas(maxiter=maxiter_while)
-
-    #         # t_plus_minus["delta_pulse_number"] = 0
-    #         # t_plus_minus.compute_pulse_numbers(f_plus_minus.model)
-
-    #         chisq_wrap_notzero[wrap] = f.resids.chi2_reduced
-    #         f.reset_model()
-    #     print(chisq_wrap_notzero)
-    #     x = chisq_wrap_notzero.keys()
-    #     y = [chisq_wrap_notzero[key] for key in chisq_wrap_notzero.keys()]
-    #     fig, ax = plt.subplots()
-    #     ax.plot(x, y, "o")
-    #     ax.set_title(f"Jumping cluster {closest_cluster}")
-    #     ax.set_ylabel("reduced chisq")
-    #     ax.set_xlabel("wraps")
-    #     # plt.show()
-    #     fig.savefig(folder / Path(f"Jumping cluster {closest_cluster}.png"))
-    #     plt.close()
 
     if args.branches:
         solution_tree.branch_creator(
@@ -2180,24 +2158,31 @@ def main_for_loop(
                 # end the program
                 break
 
-        if iteration % args.iteration_estimate == 0:
+        if iteration % args.pwss_estimate == 0:
             S = solution_tree.pwss_size_estimate()
             T = time.monotonic() - start_time
             tau = T / iteration
+            terminal_message = ""
+            terminal_message += (
+                f"Phase wrap search space (PWSS) size estimator (beta):\n"
+            )
+            terminal_message += f"Iterations completed = {iteration}\n"
+            terminal_message += f"Time elapsed (T) = {round(T)} s ({round(T/60)} m)\n"
+            terminal_message += f"Time per iteration (tau) = {round(tau,2)} s\n\n"
+            terminal_message += f"Estimated size of the total PWSS = {round(S)}\n"
+            terminal_message += f"Estimated total time (S * tau) = {round(S*tau)} s ({round((S*tau)/60)} m)\n"
+            terminal_message += f"Estimated time remaining (S * tau - T) = {round(S * tau - T)} s ({round((S * tau - T)/60)} m)\n"
+            terminal_message += f"\ng = {solution_tree.g}\n"
+            terminal_message += f"G = {solution_tree.G}\n\n"
             print("\n" * 3 + "#" * 100)
-            print(f"Phase wrap search space (PWSS) size estimator (beta):")
-            print(f"Iterations completed = {iteration}")
-            print(f"Time elapsed (T) = {T}")
-            print(f"Time per iteration (tau) = {tau}", end="\n\n")
-            print(f"Estimated size of the total PWSS = {S}")
-            print(f"Estimated total time (S * tau) = {S * tau}")
-            print(f"Estimated time remaining (S * tau - T) = {S * tau - T}")
+            print(terminal_message)
             print("#" * 100 + "\n" * 3)
 
-            if True:  # remove this after testing
-                print(f"g = {solution_tree.g}")
-                print(f"G = {solution_tree.G}")
-                raise Exception("test stop")
+            with open(alg_saves_mask_Path / Path("estimate_file.txt"), "a") as file:
+                file.write(terminal_message)
+
+            # if True:  # remove this after testing
+            #     raise Exception("test stop")
 
         # closest_cluster_mask = clusters == closest_cluster
         closest_cluster_mask = np.isin(clusters, closest_cluster_group)
@@ -2719,6 +2704,8 @@ def main():
                     file.write(
                         "The following allows for the reconstruction of the tree:\n"
                     )
+                    file.write(f"g = {solution_tree.g}\n")
+                    file.write(f"G = {solution_tree.G}\n")
                     file.write(explored_bp_string)
 
                 print(f"tree depth = {depth}")
