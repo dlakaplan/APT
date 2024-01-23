@@ -737,9 +737,11 @@ def JUMP_remover_total(
         group_right = starting_cluster_group.max()
 
         if group_left == 0:
-            left = True
-        elif group_right == cluster_max:
             left = False
+            dist_right = cluster_distances_dict[group_right]
+        elif group_right == cluster_max:
+            left = True
+            dist_left = cluster_distances_dict[group_left - 1]
         else:
             dist_left = cluster_distances_dict[group_left - 1]
             dist_right = cluster_distances_dict[group_right]
@@ -1813,7 +1815,7 @@ def APTB_argument_parse(parser, argv):
     )
     parser.add_argument(
         "--debug_mode",
-        help="Whether to enter debug mode. (default = True recommended for the time being)",
+        help="Whether to enter debug mode. (default = True is recommended for the time being)",
         action=argparse.BooleanOptionalAction,
         type=bool,
         default=True,
@@ -1963,17 +1965,21 @@ def main_for_loop(
         f"\nMask number {mask_number} has started. Starting cluster: {starting_cluster}\n"
     )
 
-    mask_Path = Path(f"mask{mask_number}_cluster{starting_cluster}")
-    alg_saves_mask_Path = alg_saves_Path / mask_Path
+    alg_saves_mask_Path = alg_saves_Path / Path(
+        f"mask{mask_number}_cluster{starting_cluster}"
+    )
     if not alg_saves_mask_Path.exists():
         alg_saves_mask_Path.mkdir()
+
+    iterations_Path = alg_saves_mask_Path / Path("Iterations")
+    if not iterations_Path.exists():
+        iterations_Path.mkdir()
 
     solution_tree.save_location = alg_saves_mask_Path
     solution_tree.g = list()
     solution_tree.G = dict()
 
     m = mb.get_model(parfile)
-    print(f"1{m=}")
     clusters = toas.table["clusters"]
     cluster_max = max_depth = np.max(clusters)
     m, t = JUMP_adder_begginning_cluster(
@@ -2014,7 +2020,6 @@ def main_for_loop(
     base_toas = deepcopy(t)
 
     # this should be one of the few instantiations of f (the 'global' f)
-    print(f"2{m=}")
     f = WLSFitter(t, m)
 
     # the following before the bigger while loop is the very first fit with only one cluster not JUMPed.
@@ -2048,17 +2053,17 @@ def main_for_loop(
             pulsar_name=pulsar_name,
             f=None,
             args=args,
-            folder=alg_saves_mask_Path,
+            folder=iterations_Path,
             iteration=f"start_right_after_phase_connector{start_iter}",
             save_plot=True,
         ):
             # try next mask
             return "continue"
 
-        print("Fitting...")
+        # print("Fitting...")
         ####f = WLSFitter(t, m)
         ## f.model = m
-        print("BEFORE:", f.get_fitparams())
+        # print("BEFORE:", f.get_fitparams())
         # changing maxiter here may have some effects
         print(
             f.fit_toas(maxiter=4)
@@ -2067,8 +2072,8 @@ def main_for_loop(
         print("Best fit has reduced chi^2 of", f.resids.chi2_reduced)
         print("RMS in phase is", f.resids.phase_resids.std())
         print("RMS in time is", f.resids.time_resids.std().to(u.us))
-        print("\n Best model is:")
-        print(f.model.as_parfile())
+        # print("\n Best model is:")
+        # print(f.model.as_parfile())
 
         # new model so need to update table
         t.table["delta_pulse_number"] = 0
@@ -2084,7 +2089,7 @@ def main_for_loop(
             mjds_total,
             pulsar_name,
             args=args,
-            folder=alg_saves_mask_Path,
+            folder=iterations_Path,
             iteration=f"start{start_iter}",
             save_plot=True,
             mask_with_closest=mask,
@@ -2208,7 +2213,7 @@ def main_for_loop(
                     mjds_total,
                     pulsar_name,
                     args=args,
-                    folder=alg_saves_mask_Path,
+                    folder=iterations_Path,
                     iteration=f"i{iteration}_d{solution_tree.current_depth()}_c{closest_cluster}",
                     save_plot=True,
                     mask_with_closest=mask_with_closest,
@@ -2223,7 +2228,7 @@ def main_for_loop(
                 # end the program
                 break
 
-        if iteration % args.pwss_estimate == 0:
+        if iteration % args.pwss_estimate == 0:  # TODO make this more accurare
             S = solution_tree.pwss_size_estimate()
             T = time.monotonic() - start_time
             tau = T / iteration
@@ -2253,9 +2258,6 @@ def main_for_loop(
                 alg_saves_mask_Path / Path("time_estimate_file.txt"), "a"
             ) as file:
                 file.write(terminal_message)
-
-            if True:  # remove this after testing
-                raise Exception("test stop")
 
         # closest_cluster_mask = clusters == closest_cluster
         closest_cluster_mask = np.isin(clusters, closest_cluster_group)
@@ -2290,7 +2292,7 @@ def main_for_loop(
             mjds_total,
             pulsar_name,
             args=args,
-            folder=alg_saves_mask_Path,
+            folder=iterations_Path,
             iteration=f"prefit_i{iteration}_d{solution_tree.current_depth()}_c{closest_cluster}",
             save_plot=True,
             mask_with_closest=mask_with_closest,
@@ -2311,7 +2313,7 @@ def main_for_loop(
                 closest_cluster=closest_cluster,
                 args=args,
                 solution_tree=solution_tree,
-                folder=alg_saves_mask_Path,
+                folder=iterations_Path,
                 iteration=iteration,
                 pulsar_name=pulsar_name,
                 unJUMPed_clusters=unJUMPed_clusters,
@@ -2370,7 +2372,7 @@ def main_for_loop(
             mjds_total,
             pulsar_name,
             args=args,
-            folder=alg_saves_mask_Path,
+            folder=iterations_Path,
             iteration=f"i{iteration}_d{solution_tree.current_depth()}_c{closest_cluster}",
             save_plot=True,
             mask_with_closest=mask_with_closest,
@@ -2444,10 +2446,8 @@ def correct_solution_procedure(
     if r_plus.chi2 <= r.chi2:
         f = deepcopy(f_plus)
 
-    # save final model as .fin file
-    print("Final Model:\n", f.model.as_parfile())
+    # print("Final Model:\n", f.model.as_parfile())
 
-    # save as .fin
     fin_Path = alg_saves_mask_solutions_Path / Path(
         f"{f.model.PSR.value}_i{iteration}.par"
     )
@@ -2598,12 +2598,6 @@ def main():
     original_path = Path.cwd()
     data_path = Path(args.data_path)
 
-    # #### FIXME When fulled implemented, DELETE the following line
-    # if socket.gethostname()[0] == "J":
-    #     data_path = Path.cwd()
-    # # else:
-    # #     data_path = Path("/data1/people/jdtaylor")
-    # ####
     os.chdir(data_path)
 
     toas = pint.toa.get_TOAs(timfile)
@@ -2752,6 +2746,14 @@ def main():
                     solution_tree.node_iteration_dict,
                     blueprint_string=True,
                 )
+                tree_graph_fig = APTB_extension.solution_tree_grapher(
+                    skeleton_tree, solution_tree.blueprint
+                )
+                tree_graph_fig.savefig(
+                    solution_tree.save_location / Path("solution_tree_schematic.jpg"),
+                    bbox_inches="tight",
+                )
+
                 depth = skeleton_tree.depth()
 
                 skeleton_tree.show()
