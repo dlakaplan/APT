@@ -504,12 +504,9 @@ def main():
     # allows APT to be run in the directory that the command was ran on
     # parfile = os.path.join(datadir, args.parfile)
     # timfile = os.path.join(datadir, args.timfile)
-    parfile = Path(args.parfile)
-    timfile = Path(args.timfile)
-    original_path = Path.cwd()
     data_path = Path(args.data_path)
-
-    os.chdir(data_path)
+    parfile = data_path / Path(args.parfile)
+    timfile = data_path / Path(args.timfile)
 
     toas = pint.toa.get_TOAs(timfile)
     toas.table["clusters"] = toas.get_clusters(gap_limit=args.cluster_gap_limit * u.h)
@@ -522,7 +519,7 @@ def main():
         args.pulsar_name = pulsar_name
     else:
         pulsar_name = args.pulsar_name
-    alg_saves_Path = Path(f"alg_saves/{pulsar_name}")
+    alg_saves_Path = data_path / Path(f"alg_saves/{pulsar_name}")
     if not alg_saves_Path.exists():
         alg_saves_Path.mkdir(parents=True)
 
