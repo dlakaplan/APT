@@ -68,13 +68,13 @@ def APTB_argument_parse(parser, argv):
     )
     parser.add_argument(
         "--RAJ_lim",
-        help="minimum time span before Right Ascension (RAJ) can be fit for",
+        help="[days] minimum time span before Right Ascension (RAJ) can be fit for",
         type=float,
         default=None,
     )
     parser.add_argument(
         "--DECJ_lim",
-        help="minimum time span before Declination (DECJ) can be fit for",
+        help="[days] minimum time span before Declination (DECJ) can be fit for",
         type=float,
         default=None,
     )
@@ -96,13 +96,13 @@ def APTB_argument_parse(parser, argv):
     )
     parser.add_argument(
         "--F1_lim",
-        help="minimum time span before Spindown (F1) can be fit for (default = time for F1 to change residuals by 0.35phase)",
+        help="[days] minimum time span before Spindown (F1) can be fit for (default = time for F1 to change residuals by 0.35phase)",
         type=float,
         default=None,
     )
     parser.add_argument(
         "--F2_lim",
-        help="minimum time span before Spindown (F1) can be fit for (default = infinity)",
+        help="[days] minimum time span before Spindown (F1) can be fit for (default = infinity)",
         type=float,
         default=None,
     )
@@ -122,13 +122,13 @@ def APTB_argument_parse(parser, argv):
     )
     parser.add_argument(
         "--EPS_lim",
-        help="minimum time span before EPS1 and EPS2 can be fit for (default = PB*5)",
+        help="[days] minimum time span before EPS1 and EPS2 can be fit for (default = PB*5)",
         type=float,
         default=None,
     )
     parser.add_argument(
         "--ECC_lim",
-        help="minimum time span before E can be fit for (default = PB*3)",
+        help="[days] minimum time span before E can be fit for (default = PB*3)",
         type=float,
         default=None,
     )
