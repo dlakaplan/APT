@@ -142,7 +142,7 @@ def skeleton_tree_creator(
         for parent, child in blueprint:
             tree.create_node(child, child, parent=parent)
             if blueprint_string:
-                bp_string += "parent,child;"
+                bp_string += f"{parent},{child};"
     elif format == "string":
         for parent_child in blueprint:
             parent, child = parent_child.split(",")
