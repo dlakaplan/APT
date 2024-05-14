@@ -1600,7 +1600,7 @@ def main_for_loop(
         start_iter += 1
         if start_iter > 3:
             log.error(
-                "StartingJumpError: Reduced chisq adnormally high, quitting program."
+                "StartingJumpError: Reduced chisq abnormally high, quitting program (use --no-start_warning to proceed anyway)."
             )
             raise RecursionError("In start: maximum recursion depth exceeded (3)")
         residuals_start = pint.residuals.Residuals(t, m).calc_phase_resids()
@@ -1639,6 +1639,12 @@ def main_for_loop(
         print(
             f.fit_toas(maxiter=4)
         )  # NOTE: need to investigate this ... this could make the base reduced chisq different than it should be
+
+        if f.resids.dof < 0:
+            log.error(
+                f"With {len(t)} TOAs and {len(f.model.free_params)} free parameters (including JUMPs), DOF is {f.resids.dof}"
+            )
+            raise ValueError(f"DOF < 0")
 
         print("Best fit has reduced chi^2 of", f.resids.chi2_reduced)
         print("RMS in phase is", f.resids.phase_resids.std())
